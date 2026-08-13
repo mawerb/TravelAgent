@@ -28,7 +28,7 @@ import {
   buildItineraryEmbedding,
   preferenceSimilarity,
 } from "@/lib/vector";
-import { HOTEL_URLS } from "@/lib/links";
+import { hotelUrl } from "@/lib/links";
 
 export async function TripRequestParser(query: string): Promise<ParsedTripRequest> {
   return getLlmAdapter().parseTripRequest(query);
@@ -52,6 +52,7 @@ export async function FlightSearchAgent(parsed: ParsedTripRequest): Promise<Flig
     origin: parsed.originAirport,
     destination: parsed.destinationAirport,
     date: parsed.startDate,
+    returnDate: parsed.endDate,
   });
 }
 
@@ -227,7 +228,13 @@ export async function OptimizationAgent(input: {
         hotel: {
           ...hotel,
           distanceMiles: hotel.distanceMiles,
-          url: hotel.url ?? HOTEL_URLS[hotel._id],
+          url: hotelUrl({
+            hotelId: hotel._id,
+            name: hotel.name,
+            city: hotel.city,
+            checkIn: input.parsed.startDate,
+            checkOut: input.parsed.endDate,
+          }),
         },
         nights,
         flightCents,
@@ -411,7 +418,13 @@ export async function runTravelSearch(query: string): Promise<SearchResult> {
   }>).map((h) => ({
     ...h,
     distanceMiles: h.distanceMiles ?? 99,
-    url: h.url ?? HOTEL_URLS[h._id],
+    url: hotelUrl({
+      hotelId: h._id,
+      name: h.name,
+      city: h.city,
+      checkIn: parsed.startDate,
+      checkOut: parsed.endDate,
+    }),
   }));
 
   const all = await OptimizationAgent({

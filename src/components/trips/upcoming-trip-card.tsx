@@ -4,7 +4,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { ExternalLink } from "@/components/ui/external-link";
 import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
-import { googleFlightsUrl } from "@/lib/links";
+import { googleFlightsUrl, hotelUrl, hotelIdFromName } from "@/lib/links";
 
 function formatRange(start: string, end: string) {
   const opts: Intl.DateTimeFormatOptions = {
@@ -17,7 +17,7 @@ function formatRange(start: string, end: string) {
 }
 
 export function UpcomingTripCard({ booking }: { booking: Booking }) {
-  const flightUrl =
+  const flightHref =
     booking.flight.url ??
     googleFlightsUrl({
       origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
@@ -26,8 +26,16 @@ export function UpcomingTripCard({ booking }: { booking: Booking }) {
           ? booking.flight.destination
           : "LAS",
       date: booking.startDate,
+      returnDate: booking.endDate,
       airline: booking.flight.airline,
     });
+  const hotelHref = hotelUrl({
+    hotelId: hotelIdFromName(booking.hotel.name),
+    name: booking.hotel.name,
+    city: booking.destinationCity,
+    checkIn: booking.startDate,
+    checkOut: booking.endDate,
+  });
 
   return (
     <div className="overflow-hidden rounded-3xl border border-border bg-white shadow-sm ring-1 ring-black/[0.03]">
@@ -61,7 +69,7 @@ export function UpcomingTripCard({ booking }: { booking: Booking }) {
             {booking.flight.origin} → {booking.flight.destination}
           </p>
           <p className="mt-2">
-            <ExternalLink href={flightUrl}>View flight</ExternalLink>
+            <ExternalLink href={flightHref}>View flight</ExternalLink>
           </p>
         </div>
         <div>
@@ -72,11 +80,9 @@ export function UpcomingTripCard({ booking }: { booking: Booking }) {
           <p className="text-sm text-muted-foreground">
             {formatMiles(booking.hotel.distanceMiles)} from venue
           </p>
-          {booking.hotel.url ? (
-            <p className="mt-2">
-              <ExternalLink href={booking.hotel.url}>View hotel</ExternalLink>
-            </p>
-          ) : null}
+          <p className="mt-2">
+            <ExternalLink href={hotelHref}>View hotel with dates</ExternalLink>
+          </p>
         </div>
         <div>
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">

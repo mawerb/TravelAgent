@@ -301,6 +301,20 @@ export type AgentActivityStep = {
   status: "pending" | "active" | "done";
 };
 
+/** Structured agent follow-ups — speakable later via ElevenLabs. */
+export type ClarifyingQuestion = {
+  id: string;
+  field: "dates" | "route" | "purpose" | "prefs";
+  prompt: string;
+  answer: string;
+};
+
+export type TripConfirmation = {
+  parsed: ParsedTripRequest;
+  summary: string;
+  questions: ClarifyingQuestion[];
+};
+
 export type SearchResult = {
   tripRequestId: string;
   steps: AgentActivityStep[];

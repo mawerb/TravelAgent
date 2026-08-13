@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
-    "test": "tsx --test src/lib/policy.test.ts src/lib/geo.test.ts src/lib/ranking.test.ts src/lib/booking.test.ts",
+    "test": "tsx --test src/lib/policy.test.ts src/lib/geo.test.ts src/lib/ranking.test.ts src/lib/booking.test.ts src/lib/links.test.ts",
     "demo": "tsx --env-file=.env.local scripts/demo-flow.ts"
   },
   "dependencies": {

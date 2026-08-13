@@ -7,6 +7,7 @@ export interface FlightProvider {
     origin: string;
     destination: string;
     date: string;
+    returnDate?: string;
   }): Promise<FlightOffer[]>;
   bookFlight(flightId: string): Promise<{ confirmation: string }>;
   cancelFlight(confirmation: string): Promise<void>;
@@ -72,6 +73,7 @@ export class MockFlightProvider implements FlightProvider {
     origin: string;
     destination: string;
     date: string;
+    returnDate?: string;
   }): Promise<FlightOffer[]> {
     return DEMO_FLIGHTS.filter(
       (f) =>
@@ -82,6 +84,7 @@ export class MockFlightProvider implements FlightProvider {
         origin: f.origin,
         destination: f.destination,
         date: input.date,
+        returnDate: input.returnDate,
         airline: f.airline,
       }),
     }));

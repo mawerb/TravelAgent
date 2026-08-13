@@ -2,9 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { AgentActivityStep, SearchResult, TripCandidate } from "@/types";
+import type {
+  AgentActivityStep,
+  SearchResult,
+  TripCandidate,
+  TripConfirmation,
+} from "@/types";
+import { clarifyTripAction } from "@/app/actions/clarify";
 import { searchTravelAction } from "@/app/actions/search";
 import { CommandBox } from "@/components/agent/command-box";
+import { ConfirmationPanel } from "@/components/agent/confirmation-panel";
 import { ActivityStream } from "@/components/agent/activity-stream";
 import {
   AlternativeCard,
@@ -18,6 +25,9 @@ export function AgentExperience() {
   const q = searchParams.get("q") ?? "";
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<AgentActivityStep[]>([]);
+  const [confirmation, setConfirmation] = useState<TripConfirmation | null>(
+    null,
+  );
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAlts, setShowAlts] = useState(false);
@@ -28,9 +38,50 @@ export function AgentExperience() {
   useEffect(() => {
     if (!q || q === lastQuery.current) return;
     lastQuery.current = q;
-    void runSearch(q);
+    void runClarify(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
+
+  async function runClarify(query: string) {
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    setConfirmation(null);
+    setShowAlts(false);
+    setSteps([
+      {
+        id: "parse",
+        title: "Understanding trip",
+        detail: "Parsing your request…",
+        status: "active",
+      },
+    ]);
+
+    const res = await clarifyTripAction(query);
+    if (!res.ok) {
+      setError(res.error);
+      setRunning(false);
+      setSteps([]);
+      return;
+    }
+
+    setSteps([
+      {
+        id: "parse",
+        title: "Understanding trip",
+        detail: `${res.data.parsed.originAirport} → ${res.data.parsed.destinationCity}`,
+        status: "done",
+      },
+      {
+        id: "confirm",
+        title: "Confirming details with you",
+        detail: "Waiting for your go-ahead",
+        status: "active",
+      },
+    ]);
+    setConfirmation(res.data);
+    setRunning(false);
+  }
 
   async function runSearch(query: string) {
     setRunning(true);
@@ -38,12 +89,18 @@ export function AgentExperience() {
     setResult(null);
     setShowAlts(false);
     setSteps([
-      { id: "parse", title: "Understanding trip", detail: "", status: "active" },
+      { id: "parse", title: "Understanding trip", detail: "", status: "done" },
+      {
+        id: "confirm",
+        title: "Details confirmed",
+        detail: "Proceeding to search",
+        status: "done",
+      },
       {
         id: "policy",
         title: "Checking company travel policy",
         detail: "",
-        status: "pending",
+        status: "active",
       },
       { id: "flights", title: "Searching flights", detail: "", status: "pending" },
       {
@@ -66,9 +123,8 @@ export function AgentExperience() {
       },
     ]);
 
-    // Animate pending steps while server works
     const animate = async () => {
-      for (let i = 0; i < 6; i++) {
+      for (let i = 2; i < 7; i++) {
         await new Promise((r) => setTimeout(r, 280));
         setSteps((prev) =>
           prev.map((s, idx) => ({
@@ -90,7 +146,8 @@ export function AgentExperience() {
       return;
     }
 
-    setSteps(res.data.steps.map((s) => ({ ...s, status: "done" })));
+    setConfirmation(null);
+    setSteps(res.data.steps.map((s) => ({ ...s, status: "done" as const })));
     setResult(res.data);
     setSelected(res.data.recommended);
     setRunning(false);
@@ -104,7 +161,8 @@ export function AgentExperience() {
         </h1>
         <p className="text-muted-foreground">
           Tell us where you need to go. We handle policy, preferences,
-          proximity, price, and booking.
+          proximity, price, and booking — and we&apos;ll confirm details with
+          you first.
         </p>
       </header>
 
@@ -114,14 +172,14 @@ export function AgentExperience() {
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
           <div className="mt-2">
-            <Button size="sm" variant="outline" onClick={() => runSearch(q)}>
+            <Button size="sm" variant="outline" onClick={() => runClarify(q)}>
               Retry
             </Button>
           </div>
         </div>
       ) : null}
 
-      {(running || steps.length > 0) && !result ? (
+      {(running || steps.length > 0) && !result && !confirmation ? (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
             Agent activity
@@ -130,11 +188,30 @@ export function AgentExperience() {
         </section>
       ) : null}
 
+      {confirmation && !result ? (
+        <section className="space-y-4">
+          <ActivityStream steps={steps} />
+          <ConfirmationPanel
+            confirmation={confirmation}
+            onConfirm={() => void runSearch(q)}
+            onRevise={() => {
+              setConfirmation(null);
+              setSteps([]);
+              lastQuery.current = "";
+            }}
+          />
+        </section>
+      ) : null}
+
       {result ? (
         <section className="space-y-6">
           <ActivityStream steps={result.steps} />
           <RecommendationCard
-            candidate={selected && selected.label === "recommended" ? selected : result.recommended}
+            candidate={
+              selected && selected.label === "recommended"
+                ? selected
+                : result.recommended
+            }
             onBook={() => {
               setSelected(result.recommended);
               setBookOpen(true);

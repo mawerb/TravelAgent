@@ -9,7 +9,7 @@ import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
 import { getBooking } from "@/lib/data/bookings";
 import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
-import { googleFlightsUrl, HOTEL_URLS, VENUE_URL } from "@/lib/links";
+import { googleFlightsUrl, hotelUrl, hotelIdFromName } from "@/lib/links";
 
 export default async function TripDetailPage({
   params,
@@ -23,7 +23,7 @@ export default async function TripDetailPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = booking.endDate < today;
-  const flightUrl =
+  const flightHref =
     booking.flight.url ??
     googleFlightsUrl({
       origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
@@ -32,23 +32,16 @@ export default async function TripDetailPage({
           ? booking.flight.destination
           : "LAS",
       date: booking.startDate,
+      returnDate: booking.endDate,
       airline: booking.flight.airline,
     });
-  const hotelUrl =
-    booking.hotel.url ??
-    Object.entries(HOTEL_URLS).find(([key]) => {
-      const name = booking.hotel.name.toLowerCase();
-      if (name.includes("elara") || name.includes("hilton grand")) {
-        return key === "hotel_hilton_vegas_near";
-      }
-      if (name.includes("renaissance") || name.includes("marriott")) {
-        return key === "hotel_marriott_vegas_closest";
-      }
-      if (name.includes("hyatt")) return key === "hotel_hyatt_vegas";
-      if (name.includes("westin")) return key === "hotel_westin_vegas";
-      if (name.includes("hampton")) return key === "hotel_hampton_vegas";
-      return false;
-    })?.[1];
+  const hotelHref = hotelUrl({
+    hotelId: hotelIdFromName(booking.hotel.name),
+    name: booking.hotel.name,
+    city: booking.destinationCity,
+    checkIn: booking.startDate,
+    checkOut: booking.endDate,
+  });
 
   return (
     <div className="space-y-8">
@@ -80,16 +73,12 @@ export default async function TripDetailPage({
         <TimelineItem
           title="Outbound flight"
           detail={`${booking.flight.airline} · ${booking.flight.departTime}–${booking.flight.arriveTime} · Confirmation ${booking.flight.confirmation ?? "—"}`}
-          link={{ href: flightUrl, label: "View on Google Flights" }}
+          link={{ href: flightHref, label: "View on Google Flights" }}
         />
         <TimelineItem
           title="Hotel check-in"
           detail={`${booking.hotel.name} · ${formatMiles(booking.hotel.distanceMiles)} from venue · Confirmation ${booking.hotel.confirmation ?? "—"}`}
-          link={
-            hotelUrl
-              ? { href: hotelUrl, label: "View hotel listing" }
-              : { href: VENUE_URL, label: "View venue" }
-          }
+          link={{ href: hotelHref, label: "View hotel with dates" }}
         />
         <TimelineItem
           title="Stay"

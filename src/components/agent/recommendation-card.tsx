@@ -87,7 +87,7 @@ export function RecommendationCard({
           {candidate.hotel.url ? (
             <p className="mt-2">
               <ExternalLink href={candidate.hotel.url}>
-                View hotel listing
+                View hotel with dates
               </ExternalLink>
             </p>
           ) : null}
