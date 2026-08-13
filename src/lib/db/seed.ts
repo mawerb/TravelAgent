@@ -23,6 +23,7 @@ import {
   VENUE_MDB_LOCAL_VEGAS,
 } from "@/lib/session";
 import { ALEX_EMBEDDING } from "@/lib/vector";
+import { HOTEL_URLS, POLICY_PDF_PATH } from "@/lib/links";
 
 // MongoDB.local Las Vegas venue (near Las Vegas Convention Center area)
 const VEGAS_VENUE: [number, number] = [-115.1537, 36.1315];
@@ -185,6 +186,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
     organizationId: ORG_ACME_ID,
     status: "active",
     source: "Acme_Travel_Policy_2026.pdf",
+    sourceUrl: POLICY_PDF_PATH,
     rules: {
       flights: {
         economyUnderHours: 6,
@@ -233,7 +235,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
   const hotels: Hotel[] = [
     {
       _id: "hotel_hilton_vegas_near",
-      name: "Hilton Grand Vacations",
+      name: "Hilton Grand Vacations Club Elara",
       brand: "Hilton",
       city: "Las Vegas",
       // ~0.3 mi from venue
@@ -242,10 +244,11 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.6,
       freeCancellation: true,
       characteristics: ["conference_adjacent", "gym", "wifi"],
+      url: HOTEL_URLS.hotel_hilton_vegas_near,
     },
     {
       _id: "hotel_marriott_vegas_closest",
-      name: "Marriott Convention Center",
+      name: "Renaissance Las Vegas Hotel",
       brand: "Marriott",
       city: "Las Vegas",
       // ~0.1 mi
@@ -254,6 +257,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.7,
       freeCancellation: true,
       characteristics: ["closest", "business_center"],
+      url: HOTEL_URLS.hotel_marriott_vegas_closest,
     },
     {
       _id: "hotel_hyatt_vegas",
@@ -266,10 +270,11 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.2,
       freeCancellation: true,
       characteristics: ["value"],
+      url: HOTEL_URLS.hotel_hyatt_vegas,
     },
     {
       _id: "hotel_westin_vegas",
-      name: "The Westin Las Vegas",
+      name: "The Westin Las Vegas Hotel & Spa",
       brand: "Westin",
       city: "Las Vegas",
       location: point(-115.17, 36.125),
@@ -277,10 +282,11 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.3,
       freeCancellation: false,
       characteristics: ["spa"],
+      url: HOTEL_URLS.hotel_westin_vegas,
     },
     {
       _id: "hotel_hampton_vegas",
-      name: "Hampton Inn Las Vegas",
+      name: "Hampton Inn Las Vegas Strip South",
       brand: "Hilton",
       city: "Las Vegas",
       location: point(-115.16, 36.14),
@@ -288,6 +294,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.0,
       freeCancellation: true,
       characteristics: ["breakfast"],
+      url: HOTEL_URLS.hotel_hampton_vegas,
     },
   ];
 

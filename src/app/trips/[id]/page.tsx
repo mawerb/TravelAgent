@@ -4,10 +4,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FeedbackForm } from "@/components/trips/feedback-form";
 import { StatusPill } from "@/components/ui/status-pill";
+import { ExternalLink } from "@/components/ui/external-link";
 import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
 import { getBooking } from "@/lib/data/bookings";
 import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
+import { googleFlightsUrl, HOTEL_URLS, VENUE_URL } from "@/lib/links";
 
 export default async function TripDetailPage({
   params,
@@ -21,11 +23,40 @@ export default async function TripDetailPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = booking.endDate < today;
+  const flightUrl =
+    booking.flight.url ??
+    googleFlightsUrl({
+      origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
+      destination:
+        booking.flight.destination !== "YYY"
+          ? booking.flight.destination
+          : "LAS",
+      date: booking.startDate,
+      airline: booking.flight.airline,
+    });
+  const hotelUrl =
+    booking.hotel.url ??
+    Object.entries(HOTEL_URLS).find(([key]) => {
+      const name = booking.hotel.name.toLowerCase();
+      if (name.includes("elara") || name.includes("hilton grand")) {
+        return key === "hotel_hilton_vegas_near";
+      }
+      if (name.includes("renaissance") || name.includes("marriott")) {
+        return key === "hotel_marriott_vegas_closest";
+      }
+      if (name.includes("hyatt")) return key === "hotel_hyatt_vegas";
+      if (name.includes("westin")) return key === "hotel_westin_vegas";
+      if (name.includes("hampton")) return key === "hotel_hampton_vegas";
+      return false;
+    })?.[1];
 
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/trips" className="text-sm text-muted-foreground hover:underline">
+        <Link
+          href="/trips"
+          className="text-sm text-muted-foreground hover:underline"
+        >
           ← Trips
         </Link>
         <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
@@ -46,26 +77,63 @@ export default async function TripDetailPage({
       </div>
 
       <ol className="relative space-y-4 border-l border-border pl-6">
-        <TimelineItem title="Outbound flight" detail={`${booking.flight.airline} · ${booking.flight.departTime}–${booking.flight.arriveTime} · Confirmation ${booking.flight.confirmation ?? "—"}`} />
-        <TimelineItem title="Hotel check-in" detail={`${booking.hotel.name} · ${formatMiles(booking.hotel.distanceMiles)} from venue · Confirmation ${booking.hotel.confirmation ?? "—"}`} />
-        <TimelineItem title="Stay" detail={`${booking.startDate} → ${booking.endDate}`} />
-        <TimelineItem title="Return" detail={`Home via ${booking.flight.airline}`} />
-        <TimelineItem title="Total charged" detail={`${formatUsd(booking.totalCents)} · Acme Corporate Travel ·••• ${booking.paymentLast4}`} />
+        <TimelineItem
+          title="Outbound flight"
+          detail={`${booking.flight.airline} · ${booking.flight.departTime}–${booking.flight.arriveTime} · Confirmation ${booking.flight.confirmation ?? "—"}`}
+          link={{ href: flightUrl, label: "View on Google Flights" }}
+        />
+        <TimelineItem
+          title="Hotel check-in"
+          detail={`${booking.hotel.name} · ${formatMiles(booking.hotel.distanceMiles)} from venue · Confirmation ${booking.hotel.confirmation ?? "—"}`}
+          link={
+            hotelUrl
+              ? { href: hotelUrl, label: "View hotel listing" }
+              : { href: VENUE_URL, label: "View venue" }
+          }
+        />
+        <TimelineItem
+          title="Stay"
+          detail={`${booking.startDate} → ${booking.endDate}`}
+        />
+        <TimelineItem
+          title="Return"
+          detail={`Home via ${booking.flight.airline}`}
+        />
+        <TimelineItem
+          title="Total charged"
+          detail={`${formatUsd(booking.totalCents)} · Acme Corporate Travel ·••• ${booking.paymentLast4}`}
+        />
       </ol>
 
       {isPast ? (
-        <FeedbackForm bookingId={booking._id} hotelBrand={booking.hotel.brand} />
+        <FeedbackForm
+          bookingId={booking._id}
+          hotelBrand={booking.hotel.brand}
+        />
       ) : null}
     </div>
   );
 }
 
-function TimelineItem({ title, detail }: { title: string; detail: string }) {
+function TimelineItem({
+  title,
+  detail,
+  link,
+}: {
+  title: string;
+  detail: string;
+  link?: { href: string; label: string };
+}) {
   return (
     <li className="relative">
       <span className="absolute -left-[1.9rem] top-1 size-3 rounded-full bg-stone-900 ring-4 ring-[var(--canvas)]" />
       <p className="font-medium">{title}</p>
       <p className="text-sm text-muted-foreground">{detail}</p>
+      {link ? (
+        <p className="mt-1">
+          <ExternalLink href={link.href}>{link.label}</ExternalLink>
+        </p>
+      ) : null}
     </li>
   );
 }

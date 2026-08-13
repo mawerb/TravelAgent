@@ -5,6 +5,8 @@ import { Check, ChevronDown } from "lucide-react";
 import type { TripCandidate } from "@/types";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { ExternalLink } from "@/components/ui/external-link";
+import { VENUE_URL } from "@/lib/links";
 import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
 import { cn } from "@/lib/utils";
@@ -54,6 +56,13 @@ export function RecommendationCard({
             {candidate.flight.cabin[0]!.toUpperCase()}
             {candidate.flight.cabin.slice(1).replace("_", " ")}
           </p>
+          {candidate.flight.url ? (
+            <p className="mt-2">
+              <ExternalLink href={candidate.flight.url}>
+                View on Google Flights
+              </ExternalLink>
+            </p>
+          ) : null}
         </div>
         <div>
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
@@ -64,9 +73,24 @@ export function RecommendationCard({
             {formatUsd(candidate.hotel.nightlyRateCents)}/night
           </p>
           <p className="text-sm text-muted-foreground">
-            {formatMiles(candidate.hotel.distanceMiles)} from MongoDB.local ·{" "}
-            {candidate.hotel.stars} stars
+            {formatMiles(candidate.hotel.distanceMiles)} from{" "}
+            <a
+              href={VENUE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sky-700 hover:underline"
+            >
+              MongoDB.local
+            </a>{" "}
+            · {candidate.hotel.stars} stars
           </p>
+          {candidate.hotel.url ? (
+            <p className="mt-2">
+              <ExternalLink href={candidate.hotel.url}>
+                View hotel listing
+              </ExternalLink>
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -207,6 +231,14 @@ export function AlternativeCard({
           {formatMiles(candidate.hotel.distanceMiles)} from venue.
         </p>
       )}
+      <div className="mt-3 flex flex-wrap gap-3">
+        {candidate.flight.url ? (
+          <ExternalLink href={candidate.flight.url}>Flight</ExternalLink>
+        ) : null}
+        {candidate.hotel.url ? (
+          <ExternalLink href={candidate.hotel.url}>Hotel</ExternalLink>
+        ) : null}
+      </div>
     </button>
   );
 }

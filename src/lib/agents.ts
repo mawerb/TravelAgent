@@ -28,6 +28,7 @@ import {
   buildItineraryEmbedding,
   preferenceSimilarity,
 } from "@/lib/vector";
+import { HOTEL_URLS } from "@/lib/links";
 
 export async function TripRequestParser(query: string): Promise<ParsedTripRequest> {
   return getLlmAdapter().parseTripRequest(query);
@@ -120,6 +121,7 @@ export async function OptimizationAgent(input: {
     freeCancellation: boolean;
     characteristics: string[];
     distanceMiles: number;
+    url?: string;
   }>;
 }): Promise<TripCandidate[]> {
   const nights = nightsBetween(input.parsed.startDate, input.parsed.endDate);
@@ -222,7 +224,11 @@ export async function OptimizationAgent(input: {
         employeeId: input.profile.employeeId,
         label: "alternative",
         flight,
-        hotel: { ...hotel, distanceMiles: hotel.distanceMiles },
+        hotel: {
+          ...hotel,
+          distanceMiles: hotel.distanceMiles,
+          url: hotel.url ?? HOTEL_URLS[hotel._id],
+        },
         nights,
         flightCents,
         hotelCents,
@@ -401,9 +407,11 @@ export async function runTravelSearch(query: string): Promise<SearchResult> {
     freeCancellation: boolean;
     characteristics: string[];
     distanceMiles: number;
+    url?: string;
   }>).map((h) => ({
     ...h,
     distanceMiles: h.distanceMiles ?? 99,
+    url: h.url ?? HOTEL_URLS[h._id],
   }));
 
   const all = await OptimizationAgent({

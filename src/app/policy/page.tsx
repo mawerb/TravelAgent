@@ -3,11 +3,13 @@ export const dynamic = "force-dynamic";
 import { PolicyUploadButton } from "@/components/policy/policy-upload";
 import { PolicySurvey } from "@/components/policy/policy-survey";
 import { StatusPill } from "@/components/ui/status-pill";
+import { ExternalLink } from "@/components/ui/external-link";
 import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
 import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
 import { ORG_ACME_ID } from "@/lib/session";
 import { formatUsd } from "@/lib/money";
+import { POLICY_PDF_PATH } from "@/lib/links";
 import type { TravelPolicy } from "@/types";
 
 export default async function PolicyPage() {
@@ -32,6 +34,7 @@ export default async function PolicyPage() {
   }
 
   const r = policy.rules;
+  const pdfUrl = policy.sourceUrl ?? POLICY_PDF_PATH;
 
   return (
     <div className="space-y-8">
@@ -42,13 +45,29 @@ export default async function PolicyPage() {
           </h1>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusPill tone="compliant">Active</StatusPill>
-            <span className="text-sm text-muted-foreground">
-              Source: {policy.source}
-            </span>
+            <ExternalLink href={pdfUrl}>{policy.source}</ExternalLink>
           </div>
         </div>
-        <PolicyUploadButton />
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={pdfUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-8 items-center rounded-lg border border-border bg-white px-3 text-sm font-medium hover:bg-muted"
+          >
+            View PDF
+          </a>
+          <PolicyUploadButton />
+        </div>
       </header>
+
+      <div className="overflow-hidden rounded-3xl border border-border bg-white shadow-sm">
+        <iframe
+          title="Acme Travel Policy PDF"
+          src={pdfUrl}
+          className="h-[70vh] w-full"
+        />
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <RuleCard title="Flights">

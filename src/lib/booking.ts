@@ -133,6 +133,7 @@ export async function BookingOrchestrator(input: {
       brand: candidate.hotel.brand,
       distanceMiles: candidate.hotel.distanceMiles,
       nightlyRateCents: candidate.hotel.nightlyRateCents,
+      url: candidate.hotel.url,
     },
     flightCents: candidate.flightCents,
     hotelCents: candidate.hotelCents,

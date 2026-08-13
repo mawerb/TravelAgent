@@ -73,6 +73,8 @@ export type TravelPolicy = {
   organizationId: string;
   status: "active" | "draft";
   source: string;
+  /** Public URL or path to view the source PDF */
+  sourceUrl?: string;
   rules: TravelPolicyRules;
   createdAt: string;
   updatedAt: string;
@@ -95,6 +97,8 @@ export type Hotel = {
   stars: number;
   freeCancellation: boolean;
   characteristics: string[];
+  /** Public listing / brand page so users can verify the property */
+  url?: string;
 };
 
 export type FlightOffer = {
@@ -109,6 +113,8 @@ export type FlightOffer = {
   cabin: "economy" | "premium_economy" | "business";
   priceCents: MoneyCents;
   inventory: number;
+  /** Public search / airline page so users can verify the route */
+  url?: string;
 };
 
 export type ParsedTripRequest = {
@@ -211,6 +217,7 @@ export type Booking = {
     distanceMiles: number;
     nightlyRateCents: MoneyCents;
     confirmation?: string;
+    url?: string;
   };
   flightCents: MoneyCents;
   hotelCents: MoneyCents;

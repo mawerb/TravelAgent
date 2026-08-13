@@ -1,4 +1,5 @@
 import type { FlightOffer } from "@/types";
+import { googleFlightsUrl } from "@/lib/links";
 import { dollarsToCents } from "@/lib/money";
 
 export interface FlightProvider {
@@ -11,7 +12,7 @@ export interface FlightProvider {
   cancelFlight(confirmation: string): Promise<void>;
 }
 
-const DEMO_FLIGHTS: FlightOffer[] = [
+const DEMO_FLIGHTS: Omit<FlightOffer, "url">[] = [
   {
     id: "flt_ua_sfo_las",
     airline: "United",
@@ -72,11 +73,18 @@ export class MockFlightProvider implements FlightProvider {
     destination: string;
     date: string;
   }): Promise<FlightOffer[]> {
-    void input.date;
     return DEMO_FLIGHTS.filter(
       (f) =>
         f.origin === input.origin && f.destination === input.destination,
-    );
+    ).map((f) => ({
+      ...f,
+      url: googleFlightsUrl({
+        origin: f.origin,
+        destination: f.destination,
+        date: input.date,
+        airline: f.airline,
+      }),
+    }));
   }
 
   async bookFlight(flightId: string): Promise<{ confirmation: string }> {
