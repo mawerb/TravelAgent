@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   AgentActivityStep,
   ParsedTripRequest,
@@ -20,13 +20,18 @@ import {
 } from "@/components/agent/recommendation-card";
 import { BookingModal } from "@/components/booking/booking-modal";
 import { Button } from "@/components/ui/button";
+import { composePromptFromParsed, formatRouteLabel } from "@/lib/clarify";
 
 export function AgentExperience() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const q = searchParams.get("q") ?? "";
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<AgentActivityStep[]>([]);
   const [confirmation, setConfirmation] = useState<TripConfirmation | null>(
+    null,
+  );
+  const [draftParsed, setDraftParsed] = useState<ParsedTripRequest | null>(
     null,
   );
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -48,6 +53,7 @@ export function AgentExperience() {
     setError(null);
     setResult(null);
     setConfirmation(null);
+    setDraftParsed(null);
     setShowAlts(false);
     setSteps([
       {
@@ -70,17 +76,22 @@ export function AgentExperience() {
       {
         id: "parse",
         title: "Understanding trip",
-        detail: `${res.data.parsed.originAirport} → ${res.data.parsed.destinationCity}`,
+        detail: formatRouteLabel(res.data.parsed),
         status: "done",
       },
       {
         id: "confirm",
-        title: "Confirming details with you",
-        detail: "Waiting for your go-ahead",
+        title: res.data.canSearch
+          ? "Confirming details with you"
+          : "Asking follow-up questions",
+        detail: res.data.canSearch
+          ? "Waiting for your go-ahead"
+          : "Need a few more details",
         status: "active",
       },
     ]);
     setConfirmation(res.data);
+    setDraftParsed(res.data.parsed);
     setRunning(false);
   }
 
@@ -89,8 +100,14 @@ export function AgentExperience() {
     setError(null);
     setResult(null);
     setShowAlts(false);
+    setDraftParsed(parsed);
     setSteps([
-      { id: "parse", title: "Understanding trip", detail: "", status: "done" },
+      {
+        id: "parse",
+        title: "Understanding trip",
+        detail: formatRouteLabel(parsed),
+        status: "done",
+      },
       {
         id: "confirm",
         title: "Details confirmed",
@@ -144,6 +161,7 @@ export function AgentExperience() {
     if (!res.ok) {
       setError(res.error);
       setRunning(false);
+      // Keep confirmation + draft so the user does not start from scratch.
       return;
     }
 
@@ -152,6 +170,17 @@ export function AgentExperience() {
     setResult(res.data);
     setSelected(res.data.recommended);
     setRunning(false);
+  }
+
+  function continueWithContext() {
+    const parsed = draftParsed ?? confirmation?.parsed;
+    if (!parsed) {
+      void runClarify(q);
+      return;
+    }
+    const next = composePromptFromParsed(parsed);
+    lastQuery.current = "";
+    router.push(`/agent?q=${encodeURIComponent(next)}`);
   }
 
   return (
@@ -171,9 +200,21 @@ export function AgentExperience() {
 
       {error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {error}
-          <div className="mt-2">
-            <Button size="sm" variant="outline" onClick={() => runClarify(q)}>
+          <p>{error}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(draftParsed || confirmation) && (
+              <Button size="sm" onClick={continueWithContext}>
+                Continue with your details
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (draftParsed) void runSearch(q, draftParsed);
+                else void runClarify(q);
+              }}
+            >
               Retry
             </Button>
           </div>
@@ -194,6 +235,7 @@ export function AgentExperience() {
           <ActivityStream steps={steps} />
           <ConfirmationPanel
             confirmation={confirmation}
+            onDraftChange={setDraftParsed}
             onConfirm={(parsed) => void runSearch(q, parsed)}
           />
         </section>
@@ -202,6 +244,11 @@ export function AgentExperience() {
       {result ? (
         <section className="space-y-6">
           <ActivityStream steps={result.steps} />
+          {result.preferenceNote ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              {result.preferenceNote}
+            </div>
+          ) : null}
           <RecommendationCard
             candidate={
               selected && selected.label === "recommended"

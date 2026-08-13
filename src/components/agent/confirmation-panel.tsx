@@ -10,9 +10,11 @@ import { cn } from "@/lib/utils";
 export function ConfirmationPanel({
   confirmation,
   onConfirm,
+  onDraftChange,
 }: {
   confirmation: TripConfirmation;
   onConfirm: (parsed: ParsedTripRequest) => void;
+  onDraftChange?: (parsed: ParsedTripRequest) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ParsedTripRequest>(confirmation.parsed);
@@ -29,8 +31,13 @@ export function ConfirmationPanel({
 
   const live = buildTripConfirmation(draft);
 
+  function updateDraft(next: ParsedTripRequest) {
+    setDraft(next);
+    onDraftChange?.(next);
+  }
+
   function patch(partial: Partial<ParsedTripRequest>) {
-    setDraft((prev) => ({ ...prev, ...partial }));
+    updateDraft({ ...draft, ...partial });
   }
 
   async function sendRevision() {
@@ -43,7 +50,7 @@ export function ConfirmationPanel({
       setReply(res.error);
       return;
     }
-    setDraft(res.data.parsed);
+    updateDraft(res.data.parsed);
     setReply(res.data.reply);
     setPrompt("");
   }
@@ -55,12 +62,30 @@ export function ConfirmationPanel({
           Agent follow-up
         </p>
         <h2 className="mt-1 text-xl font-semibold tracking-tight">
-          {editing ? "Revise trip details" : "Double-check before I search"}
+          {live.followUps.length > 0
+            ? "I need a couple more details"
+            : editing
+              ? "Revise trip details"
+              : "Double-check before I search"}
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           {live.summary}
         </p>
       </div>
+
+      {live.followUps.length > 0 ? (
+        <ul className="space-y-3">
+          {live.followUps.map((q) => (
+            <li
+              key={q.id}
+              className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3"
+            >
+              <p className="text-sm font-medium text-amber-950">{q.prompt}</p>
+              <p className="mt-1 text-sm text-amber-900/80">{q.answer}</p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {editing ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -86,6 +111,7 @@ export function ConfirmationPanel({
               onChange={(e) =>
                 patch({ originAirport: e.target.value.toUpperCase() })
               }
+              placeholder="e.g. SFO"
               className={fieldClass}
               maxLength={3}
             />
@@ -96,6 +122,7 @@ export function ConfirmationPanel({
               onChange={(e) =>
                 patch({ destinationAirport: e.target.value.toUpperCase() })
               }
+              placeholder="e.g. LAS"
               className={fieldClass}
               maxLength={3}
             />
@@ -157,7 +184,9 @@ export function ConfirmationPanel({
 
       <div className="space-y-2 rounded-2xl border border-border/80 bg-stone-50/60 p-3">
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Tell the agent what to change
+          {live.followUps.length > 0
+            ? "Reply to the agent"
+            : "Tell the agent what to change"}
         </p>
         <textarea
           value={prompt}
@@ -169,7 +198,11 @@ export function ConfirmationPanel({
             }
           }}
           rows={2}
-          placeholder='e.g. "flight under $300", "hotel under $200/night", "prefer Delta"'
+          placeholder={
+            live.followUps[0]
+              ? live.followUps[0].answer
+              : 'e.g. "flight under $300", "from SFO", "prefer Delta"'
+          }
           className="w-full resize-none rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-stone-300"
         />
         <div className="flex flex-wrap items-center gap-2">
@@ -180,7 +213,7 @@ export function ConfirmationPanel({
             disabled={revising || !prompt.trim()}
             onClick={() => void sendRevision()}
           >
-            {revising ? "Updating…" : "Update details"}
+            {revising ? "Updating…" : "Send"}
           </Button>
           {reply ? (
             <p className="text-sm text-emerald-800">{reply}</p>
@@ -189,8 +222,16 @@ export function ConfirmationPanel({
       </div>
 
       <div className="flex flex-wrap gap-2 pt-1">
-        <Button type="button" onClick={() => onConfirm(draft)}>
-          {editing ? "Search with these details" : "Yes — find trips"}
+        <Button
+          type="button"
+          disabled={!live.canSearch}
+          onClick={() => onConfirm(draft)}
+        >
+          {live.canSearch
+            ? editing
+              ? "Search with these details"
+              : "Yes — find trips"
+            : "Answer follow-ups to continue"}
         </Button>
         {editing ? (
           <Button

@@ -51,7 +51,7 @@ describe("links", () => {
 
 describe("clarify", () => {
   it("asks follow-up questions that include the trip dates", () => {
-    const { summary, questions } = buildTripConfirmation({
+    const { summary, questions, canSearch, followUps } = buildTripConfirmation({
       originAirport: "SFO",
       destinationCity: "Las Vegas",
       destinationAirport: "LAS",
@@ -67,6 +67,24 @@ describe("clarify", () => {
     assert.equal(questions.length, 4);
     assert.match(questions[0]!.answer, /Sep/);
     assert.match(questions[0]!.answer, /22/);
+    assert.equal(canSearch, true);
+    assert.equal(followUps.length, 0);
+  });
+
+  it("labels missing origin without inventing a city", () => {
+    const { summary, followUps, canSearch } = buildTripConfirmation({
+      originAirport: "",
+      destinationCity: "Seattle",
+      destinationAirport: "SEA",
+      startDate: "2026-09-08",
+      endDate: "2026-09-10",
+      purpose: "Seattle trip",
+      proximityPreferred: false,
+      rawQuery: "seattle",
+    });
+    assert.match(summary, /No outbound location known/);
+    assert.equal(canSearch, false);
+    assert.ok(followUps.some((f) => f.id === "need_origin"));
   });
 
   it("revises airline and dates from a natural-language prompt", () => {

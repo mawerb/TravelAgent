@@ -51,7 +51,9 @@ export class DemoLlmAdapter implements LlmAdapter {
 
     if (/nyc|new york/i.test(query)) {
       return {
-        originAirport: DEMO_EMPLOYEE.homeAirport,
+        originAirport: /from\s+([A-Za-z]{3})\b/i.test(query)
+          ? query.match(/from\s+([A-Za-z]{3})\b/i)![1]!.toUpperCase()
+          : "",
         destinationCity: "New York",
         destinationAirport: "JFK",
         startDate: "2026-08-20",
@@ -69,7 +71,9 @@ export class DemoLlmAdapter implements LlmAdapter {
 
     if (/chicago|\bord\b/i.test(query)) {
       return {
-        originAirport: DEMO_EMPLOYEE.homeAirport,
+        originAirport: /from\s+([A-Za-z]{3})\b/i.test(query)
+          ? query.match(/from\s+([A-Za-z]{3})\b/i)![1]!.toUpperCase()
+          : "",
         destinationCity: "Chicago",
         destinationAirport: "ORD",
         startDate: "2026-09-10",
@@ -83,7 +87,9 @@ export class DemoLlmAdapter implements LlmAdapter {
 
     if (/austin|\baus\b/i.test(query)) {
       return {
-        originAirport: DEMO_EMPLOYEE.homeAirport,
+        originAirport: /from\s+([A-Za-z]{3})\b/i.test(query)
+          ? query.match(/from\s+([A-Za-z]{3})\b/i)![1]!.toUpperCase()
+          : "",
         destinationCity: "Austin",
         destinationAirport: "AUS",
         startDate: "2026-09-15",
@@ -97,7 +103,9 @@ export class DemoLlmAdapter implements LlmAdapter {
 
     if (/seattle|\bsea\b/i.test(query)) {
       return {
-        originAirport: DEMO_EMPLOYEE.homeAirport,
+        originAirport: /from\s+([A-Za-z]{3})\b/i.test(query)
+          ? query.match(/from\s+([A-Za-z]{3})\b/i)![1]!.toUpperCase()
+          : "",
         destinationCity: "Seattle",
         destinationAirport: "SEA",
         startDate: "2026-09-08",
@@ -109,11 +117,13 @@ export class DemoLlmAdapter implements LlmAdapter {
       };
     }
 
-    // No Vegas default — leave destination open for the confirm UI / LLM revise.
+    // No invented cities — leave gaps for conversational follow-up.
     return {
-      originAirport: DEMO_EMPLOYEE.homeAirport,
-      destinationCity: "Unknown",
-      destinationAirport: "XXX",
+      originAirport: /from\s+([A-Za-z]{3})\b/i.test(query)
+        ? query.match(/from\s+([A-Za-z]{3})\b/i)![1]!.toUpperCase()
+        : "",
+      destinationCity: "",
+      destinationAirport: "",
       startDate: "2026-09-22",
       endDate: "2026-09-25",
       purpose: query.slice(0, 80),
@@ -194,7 +204,7 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
             {
               role: "system",
               content:
-                "Parse travel requests to JSON with originAirport, destinationCity, destinationAirport, startDate, endDate, purpose, venueName, preferredAirline, preferredHotelBrand, preferredCabin (economy|premium_economy|business), proximityPreferred, maxFlightCents, maxHotelNightlyCents, maxTotalCents. Dates ISO YYYY-MM-DD. Year 2026 unless the user specifies another year. Money fields are integer cents ($300 → 30000). Omit unknown fields. Do NOT invent Las Vegas / MongoDB.local unless the user asked for that.",
+                "Parse travel requests to JSON with originAirport, destinationCity, destinationAirport, startDate, endDate, purpose, venueName, preferredAirline, preferredHotelBrand, preferredCabin (economy|premium_economy|business), proximityPreferred, maxFlightCents, maxHotelNightlyCents, maxTotalCents. Dates ISO YYYY-MM-DD. Year 2026 unless the user specifies another year. Money fields are integer cents ($300 → 30000). Omit unknown fields. Use empty string for originAirport/destinationCity/destinationAirport when the user did not specify them — never invent a city (not Seattle, not Las Vegas) unless asked.",
             },
             { role: "user", content: query },
           ],

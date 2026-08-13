@@ -17,8 +17,11 @@ export async function clarifyTripAction(
     }
     await ensureDemoSeeded();
     const parsed = await TripRequestParser(query.trim());
-    const { summary, questions } = buildTripConfirmation(parsed);
-    return { ok: true, data: { parsed, summary, questions } };
+    const built = buildTripConfirmation(parsed);
+    return {
+      ok: true,
+      data: { parsed, ...built },
+    };
   } catch (err) {
     return {
       ok: false,
@@ -43,13 +46,12 @@ export async function reviseTripAction(
     }
     const { parsed, reply, changed } =
       await getReviseLlmAdapter().reviseTripRequest(current, message.trim());
-    const { summary, questions } = buildTripConfirmation(parsed);
+    const built = buildTripConfirmation(parsed);
     return {
       ok: true,
       data: {
         parsed,
-        summary,
-        questions,
+        ...built,
         reply: changed
           ? reply
           : reply || "No changes applied — try rephrasing your request.",

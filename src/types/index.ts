@@ -347,6 +347,9 @@ export type TripConfirmation = {
   parsed: ParsedTripRequest;
   summary: string;
   questions: ClarifyingQuestion[];
+  /** Conversational gaps the agent still needs answered before searching. */
+  followUps: ClarifyingQuestion[];
+  canSearch: boolean;
 };
 
 export type SearchResult = {
@@ -354,4 +357,6 @@ export type SearchResult = {
   steps: AgentActivityStep[];
   recommended: TripCandidate;
   alternatives: TripCandidate[];
+  /** When hard preferences blocked matches, we relaxed them and explain how. */
+  preferenceNote?: string;
 };

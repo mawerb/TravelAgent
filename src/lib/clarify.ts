@@ -9,7 +9,59 @@ function formatRange(start: string, end: string): string {
   };
   const s = new Date(start + "T12:00:00");
   const e = new Date(end + "T12:00:00");
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
+    return "dates not specified";
+  }
   return `${s.toLocaleDateString("en-US", opts)} → ${e.toLocaleDateString("en-US", opts)}`;
+}
+
+export function isUnknownAirport(code?: string | null): boolean {
+  if (!code) return true;
+  const c = code.trim().toUpperCase();
+  return (
+    c.length < 3 ||
+    c === "XXX" ||
+    c === "UNK" ||
+    c === "NULL" ||
+    c === "UNKNOWN" ||
+    c === "N/A"
+  );
+}
+
+export function isUnknownCity(city?: string | null): boolean {
+  if (!city) return true;
+  const c = city.trim().toLowerCase();
+  return (
+    c.length === 0 ||
+    c === "unknown" ||
+    c === "null" ||
+    c === "n/a" ||
+    c === "unspecified"
+  );
+}
+
+export function formatAirportLabel(code?: string | null): string {
+  return isUnknownAirport(code) ? "not specified" : code!.trim().toUpperCase();
+}
+
+export function formatCityLabel(city?: string | null): string {
+  return isUnknownCity(city) ? "not specified" : city!.trim();
+}
+
+export function formatRouteLabel(parsed: ParsedTripRequest): string {
+  const origin = isUnknownAirport(parsed.originAirport)
+    ? "No outbound location known"
+    : parsed.originAirport.trim().toUpperCase();
+  const dest = isUnknownCity(parsed.destinationCity)
+    ? isUnknownAirport(parsed.destinationAirport)
+      ? "destination not specified"
+      : parsed.destinationAirport.trim().toUpperCase()
+    : `${formatCityLabel(parsed.destinationCity)}${
+        isUnknownAirport(parsed.destinationAirport)
+          ? ""
+          : ` (${parsed.destinationAirport.trim().toUpperCase()})`
+      }`;
+  return `${origin} → ${dest}`;
 }
 
 function budgetLine(parsed: ParsedTripRequest): string | null {
@@ -26,10 +78,84 @@ function budgetLine(parsed: ParsedTripRequest): string | null {
   return parts.length ? parts.join("; ") : null;
 }
 
+export function buildFollowUps(parsed: ParsedTripRequest): ClarifyingQuestion[] {
+  const followUps: ClarifyingQuestion[] = [];
+  if (isUnknownAirport(parsed.originAirport)) {
+    followUps.push({
+      id: "need_origin",
+      field: "route",
+      prompt: "Where are you flying out of?",
+      answer: "No outbound location known yet — tell me an airport or city (e.g. “from SFO”).",
+    });
+  }
+  if (
+    isUnknownCity(parsed.destinationCity) &&
+    isUnknownAirport(parsed.destinationAirport)
+  ) {
+    followUps.push({
+      id: "need_destination",
+      field: "route",
+      prompt: "Where do you need to go?",
+      answer: "Destination not specified — say a city or airport (e.g. “to Las Vegas”).",
+    });
+  }
+  if (!parsed.startDate || !parsed.endDate) {
+    followUps.push({
+      id: "need_dates",
+      field: "dates",
+      prompt: "Which dates should I book?",
+      answer: "Travel dates not specified — e.g. “Sep 22–25”.",
+    });
+  }
+  return followUps;
+}
+
+/** Rebuild a natural-language prompt from confirmed/revised details after an error. */
+export function composePromptFromParsed(parsed: ParsedTripRequest): string {
+  const bits: string[] = [];
+  if (!isUnknownAirport(parsed.originAirport)) {
+    bits.push(`from ${parsed.originAirport.toUpperCase()}`);
+  }
+  if (!isUnknownCity(parsed.destinationCity)) {
+    bits.push(`to ${parsed.destinationCity}`);
+  } else if (!isUnknownAirport(parsed.destinationAirport)) {
+    bits.push(`to ${parsed.destinationAirport.toUpperCase()}`);
+  }
+  if (parsed.startDate && parsed.endDate) {
+    bits.push(`${parsed.startDate} to ${parsed.endDate}`);
+  }
+  if (parsed.purpose && !/^unknown$/i.test(parsed.purpose)) {
+    bits.push(`for ${parsed.venueName ?? parsed.purpose}`);
+  }
+  if (parsed.preferredAirline) bits.push(`prefer ${parsed.preferredAirline}`);
+  if (parsed.preferredHotelBrand) {
+    bits.push(`prefer ${parsed.preferredHotelBrand} hotels`);
+  }
+  if (parsed.preferredCabin) {
+    bits.push(`${parsed.preferredCabin.replace("_", " ")} cabin`);
+  }
+  if (parsed.proximityPreferred) bits.push("stay close to the venue");
+  if (parsed.maxFlightCents != null) {
+    bits.push(`flight under ${formatUsd(parsed.maxFlightCents)}`);
+  }
+  if (parsed.maxHotelNightlyCents != null) {
+    bits.push(`hotel under ${formatUsd(parsed.maxHotelNightlyCents)}/night`);
+  }
+  if (parsed.maxTotalCents != null) {
+    bits.push(`total under ${formatUsd(parsed.maxTotalCents)}`);
+  }
+  const composed = bits.join(", ");
+  const base = parsed.rawQuery?.split("\n[revise]")[0]?.trim() || "";
+  if (base && composed) return `${base}. Updated details: ${composed}.`;
+  return composed || base || "Help me plan a business trip.";
+}
+
 /** Structured confirmations for chat/voice (ElevenLabs-ready) before searching. */
 export function buildTripConfirmation(parsed: ParsedTripRequest): {
   summary: string;
   questions: ClarifyingQuestion[];
+  followUps: ClarifyingQuestion[];
+  canSearch: boolean;
 } {
   const airline = parsed.preferredAirline ?? "no airline preference";
   const hotelBrand = parsed.preferredHotelBrand
@@ -40,8 +166,10 @@ export function buildTripConfirmation(parsed: ParsedTripRequest): {
     : "";
   const proximity = parsed.proximityPreferred
     ? "stay close to the venue"
-    : "no proximity preference";
+    : "no strong proximity preference";
   const budget = budgetLine(parsed);
+  const route = formatRouteLabel(parsed);
+  const followUps = buildFollowUps(parsed);
 
   const questions: ClarifyingQuestion[] = [
     {
@@ -54,13 +182,13 @@ export function buildTripConfirmation(parsed: ParsedTripRequest): {
       id: "route",
       field: "route",
       prompt: "Confirm origin and destination?",
-      answer: `${parsed.originAirport} → ${parsed.destinationCity} (${parsed.destinationAirport})`,
+      answer: route,
     },
     {
       id: "purpose",
       field: "purpose",
       prompt: "Is this the right trip purpose / venue?",
-      answer: parsed.venueName ?? parsed.purpose,
+      answer: parsed.venueName ?? parsed.purpose ?? "not specified",
     },
     {
       id: "prefs",
@@ -79,9 +207,18 @@ export function buildTripConfirmation(parsed: ParsedTripRequest): {
     });
   }
 
-  const summary = `I heard: ${parsed.originAirport} → ${parsed.destinationCity} for ${parsed.purpose}, ${formatRange(parsed.startDate, parsed.endDate)}. Prefer ${airline}${hotelBrand}${cabin}, and ${proximity}${budget ? `. Caps: ${budget}` : ""}. Please confirm before I search.`;
+  const purposeBit = parsed.purpose ? ` for ${parsed.purpose}` : "";
+  const summary =
+    followUps.length > 0
+      ? `Here’s what I have so far: ${route}${purposeBit}, ${formatRange(parsed.startDate, parsed.endDate)}. I still need a couple details before I can search.`
+      : `I heard: ${route}${purposeBit}, ${formatRange(parsed.startDate, parsed.endDate)}. Prefer ${airline}${hotelBrand}${cabin}, and ${proximity}${budget ? `. Caps: ${budget}` : ""}. Please confirm before I search.`;
 
-  return { summary, questions };
+  return {
+    summary,
+    questions,
+    followUps,
+    canSearch: followUps.length === 0,
+  };
 }
 
 const MONTH: Record<string, number> = {

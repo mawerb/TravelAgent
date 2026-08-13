@@ -31,7 +31,7 @@ import {
 } from "@/lib/vector";
 import { hotelListingUrl, hotelRatesUrl } from "@/lib/links";
 import { HOTEL_DETAILS } from "@/lib/hotel-details";
-import { hasUserSearchOverrides } from "@/lib/clarify";
+import { hasUserSearchOverrides, formatRouteLabel } from "@/lib/clarify";
 
 function enrichHotel(
   hotel: {
@@ -167,7 +167,7 @@ function departHour(time: string): number {
   return Number(time.split(":")[0]);
 }
 
-export async function OptimizationAgent(input: {
+function buildFilteredCandidates(input: {
   tripRequestId: string;
   parsed: ParsedTripRequest;
   policy: TravelPolicy;
@@ -191,7 +191,7 @@ export async function OptimizationAgent(input: {
     listingUrl?: string;
     url?: string;
   }>;
-}): Promise<TripCandidate[]> {
+}): TripCandidate[] {
   const nights = nightsBetween(input.parsed.startDate, input.parsed.endDate);
   const candidates: TripCandidate[] = [];
   const userOverrides = hasUserSearchOverrides(input.parsed);
@@ -391,26 +391,112 @@ export async function OptimizationAgent(input: {
   }
 
   candidates.sort((a, b) => b.scores.finalScore - a.scores.finalScore);
+  return candidates;
+}
+
+function describeCap(parsed: ParsedTripRequest): string[] {
+  const hints: string[] = [];
+  if (parsed.preferredCabin) {
+    hints.push(`${parsed.preferredCabin.replace("_", " ")} cabin`);
+  }
+  if (parsed.maxFlightCents != null) {
+    hints.push(`flight ≤ ${formatUsd(parsed.maxFlightCents)}`);
+  }
+  if (parsed.maxHotelNightlyCents != null) {
+    hints.push(`hotel ≤ ${formatUsd(parsed.maxHotelNightlyCents)}/night`);
+  }
+  if (parsed.maxTotalCents != null) {
+    hints.push(`total ≤ ${formatUsd(parsed.maxTotalCents)}`);
+  }
+  return hints;
+}
+
+function relaxParsed(
+  parsed: ParsedTripRequest,
+  drop: "preferredCabin" | "maxFlightCents" | "maxHotelNightlyCents" | "maxTotalCents",
+): ParsedTripRequest {
+  const next = { ...parsed };
+  delete next[drop];
+  return next;
+}
+
+export async function OptimizationAgent(input: {
+  tripRequestId: string;
+  parsed: ParsedTripRequest;
+  policy: TravelPolicy;
+  profile: EmployeeProfile;
+  flights: FlightOffer[];
+  hotels: Array<{
+    _id: string;
+    name: string;
+    brand: string;
+    city: string;
+    location: { type: "Point"; coordinates: [number, number] };
+    nightlyRateCents: number;
+    stars: number;
+    freeCancellation: boolean;
+    characteristics: string[];
+    distanceMiles: number;
+    amenities?: string[];
+    address?: string;
+    neighborhood?: string;
+    room?: HotelRoom;
+    listingUrl?: string;
+    url?: string;
+  }>;
+}): Promise<{ candidates: TripCandidate[]; preferenceNote?: string }> {
+  let filterParsed = input.parsed;
+  let candidates = buildFilteredCandidates({ ...input, parsed: filterParsed });
+  let preferenceNote: string | undefined;
+
+  if (candidates.length === 0 && describeCap(input.parsed).length > 0) {
+    const order = [
+      "preferredCabin",
+      "maxFlightCents",
+      "maxHotelNightlyCents",
+      "maxTotalCents",
+    ] as const;
+    for (const key of order) {
+      if (input.parsed[key] == null && filterParsed[key] == null) continue;
+      if (filterParsed[key] == null) continue;
+      const before = describeCap(filterParsed);
+      filterParsed = relaxParsed(filterParsed, key);
+      candidates = buildFilteredCandidates({ ...input, parsed: filterParsed });
+      if (candidates.length > 0) {
+        const dropped = before.find((h) => !describeCap(filterParsed).includes(h));
+        preferenceNote = dropped
+          ? `No trips matched your ${dropped} preference. Showing results with that limit relaxed.`
+          : "No trips matched your hard preferences. Showing the closest options with looser filters.";
+        break;
+      }
+    }
+  }
+
+  if (candidates.length === 0 && describeCap(input.parsed).length > 0) {
+    filterParsed = {
+      ...input.parsed,
+      preferredCabin: undefined,
+      maxFlightCents: undefined,
+      maxHotelNightlyCents: undefined,
+      maxTotalCents: undefined,
+    };
+    candidates = buildFilteredCandidates({ ...input, parsed: filterParsed });
+    if (candidates.length > 0) {
+      preferenceNote = `No trips matched ${describeCap(input.parsed).join(", ")}. Showing in-policy options without those caps.`;
+    }
+  }
 
   if (candidates.length === 0) {
-    const hints: string[] = [];
-    if (input.parsed.maxFlightCents != null) {
-      hints.push(`flight ≤ ${formatUsd(input.parsed.maxFlightCents)}`);
-    }
-    if (input.parsed.maxHotelNightlyCents != null) {
-      hints.push(
-        `hotel ≤ ${formatUsd(input.parsed.maxHotelNightlyCents)}/night`,
-      );
-    }
-    if (input.parsed.maxTotalCents != null) {
-      hints.push(`total ≤ ${formatUsd(input.parsed.maxTotalCents)}`);
-    }
     throw new Error(
-      hints.length
-        ? `No trips match your caps (${hints.join(", ")}). Try raising a limit or clearing a cabin/brand filter.`
-        : "No trip candidates matched your revised preferences.",
+      "No trip candidates matched this route. Try a different destination or dates.",
     );
   }
+
+  const userOverrides = hasUserSearchOverrides(input.parsed);
+  const isVegasDemo =
+    input.parsed.destinationAirport === "LAS" &&
+    /mongodb\.local/i.test(input.parsed.purpose) &&
+    !userOverrides;
 
   // Prefer user-stated airline/brand when choosing the hero recommendation
   const preferred =
@@ -446,7 +532,6 @@ export async function OptimizationAgent(input: {
       .sort((a, b) => a.hotel.distanceMiles - b.hotel.distanceMiles)[0] ?? null;
   if (bestLoc) bestLoc.label = "best_location";
 
-  // Force demo alternative numbers when present (scripted path only)
   if (isVegasDemo) {
     for (const c of candidates) {
       if (c.label === "lowest_cost" || c.label === "best_location") {
@@ -493,7 +578,7 @@ export async function OptimizationAgent(input: {
     brand: recommended.hotel.brand,
   });
 
-  return candidates;
+  return { candidates, preferenceNote };
 }
 
 export async function runTravelSearch(
@@ -532,10 +617,7 @@ export async function runTravelSearch(
 
   const parsed =
     parsedOverride ?? (await TripRequestParser(query));
-  steps[0]!.detail = `San Francisco → ${parsed.destinationCity} · Sep 22–25`;
-  if (parsed.startDate !== "2026-09-22") {
-    steps[0]!.detail = `${parsed.originAirport} → ${parsed.destinationCity} · ${parsed.startDate}–${parsed.endDate}`;
-  }
+  steps[0]!.detail = `${formatRouteLabel(parsed)} · ${parsed.startDate}–${parsed.endDate}`;
   steps[0]!.status = "done";
 
   const policy = await PolicyAgent(ORG_ACME_ID);
@@ -606,7 +688,7 @@ export async function runTravelSearch(
     ),
   );
 
-  const all = await OptimizationAgent({
+  const { candidates: all, preferenceNote } = await OptimizationAgent({
     tripRequestId,
     parsed,
     policy,
@@ -615,6 +697,9 @@ export async function runTravelSearch(
     hotels: hotelsTyped,
   });
   steps[5]!.status = "done";
+  if (preferenceNote) {
+    steps[4]!.detail = preferenceNote;
+  }
 
   if (all.length === 0) {
     throw new Error(
@@ -637,13 +722,13 @@ export async function runTravelSearch(
   await col<TripCandidate>(db, "tripCandidates").insertMany(toStore);
 
   void POLICY_ACME_ID;
-  void dollarsToCents;
 
   return {
     tripRequestId,
     steps,
     recommended,
     alternatives,
+    preferenceNote,
   };
 }
 
