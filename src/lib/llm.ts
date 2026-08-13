@@ -19,31 +19,34 @@ export interface LlmAdapter {
   }): Promise<string>;
 }
 
-const VEGAS_PATTERN =
-  /las vegas|mongodb\.local|sep(tember)?\s*22|keep me close|prefer(ably)?\s*united/i;
+/** Only the scripted MongoDB.local Vegas prompt — not “prefer United” alone. */
+export function isVegasDemoQuery(query: string): boolean {
+  return (
+    /mongodb\.local/i.test(query) ||
+    (/las\s*vegas/i.test(query) &&
+      /sep(?:t(?:ember)?)?\s*22/i.test(query))
+  );
+}
+
+function vegasDemoParse(query: string): ParsedTripRequest {
+  return {
+    originAirport: DEMO_EMPLOYEE.homeAirport,
+    destinationCity: "Las Vegas",
+    destinationAirport: "LAS",
+    startDate: "2026-09-22",
+    endDate: "2026-09-25",
+    purpose: "MongoDB.local",
+    venueName: "MongoDB.local",
+    preferredAirline: /united/i.test(query) ? "United" : "United",
+    proximityPreferred: /close|near|proximity|venue/i.test(query) || true,
+    rawQuery: query,
+  };
+}
 
 export class DemoLlmAdapter implements LlmAdapter {
   async parseTripRequest(query: string): Promise<ParsedTripRequest> {
-    if (VEGAS_PATTERN.test(query) || process.env.DEMO_MODE === "true") {
-      if (
-        VEGAS_PATTERN.test(query) ||
-        /mongodb\.local/i.test(query) ||
-        /las vegas/i.test(query)
-      ) {
-        return {
-          originAirport: DEMO_EMPLOYEE.homeAirport,
-          destinationCity: "Las Vegas",
-          destinationAirport: "LAS",
-          startDate: "2026-09-22",
-          endDate: "2026-09-25",
-          purpose: "MongoDB.local",
-          venueName: "MongoDB.local",
-          preferredAirline: /united/i.test(query) ? "United" : "United",
-          proximityPreferred:
-            /close|near|proximity|venue/i.test(query) || true,
-          rawQuery: query,
-        };
-      }
+    if (isVegasDemoQuery(query)) {
+      return vegasDemoParse(query);
     }
 
     if (/nyc|new york/i.test(query)) {
@@ -53,23 +56,75 @@ export class DemoLlmAdapter implements LlmAdapter {
         destinationAirport: "JFK",
         startDate: "2026-08-20",
         endDate: "2026-08-22",
-        purpose: "NYC next week",
+        purpose: /customer/i.test(query) ? "Customer visit" : "NYC next week",
+        preferredAirline: /delta/i.test(query)
+          ? "Delta"
+          : /american/i.test(query)
+            ? "American"
+            : "United",
+        proximityPreferred: true,
+        rawQuery: query,
+      };
+    }
+
+    if (/chicago|\bord\b/i.test(query)) {
+      return {
+        originAirport: DEMO_EMPLOYEE.homeAirport,
+        destinationCity: "Chicago",
+        destinationAirport: "ORD",
+        startDate: "2026-09-10",
+        endDate: "2026-09-12",
+        purpose: /offsite/i.test(query) ? "Team offsite" : "Chicago trip",
         preferredAirline: "United",
         proximityPreferred: true,
         rawQuery: query,
       };
     }
 
+    if (/austin|\baus\b/i.test(query)) {
+      return {
+        originAirport: DEMO_EMPLOYEE.homeAirport,
+        destinationCity: "Austin",
+        destinationAirport: "AUS",
+        startDate: "2026-09-15",
+        endDate: "2026-09-17",
+        purpose: /customer/i.test(query) ? "Customer visit" : "Austin trip",
+        preferredAirline: "United",
+        proximityPreferred: true,
+        rawQuery: query,
+      };
+    }
+
+    if (/seattle|\bsea\b/i.test(query)) {
+      return {
+        originAirport: DEMO_EMPLOYEE.homeAirport,
+        destinationCity: "Seattle",
+        destinationAirport: "SEA",
+        startDate: "2026-09-08",
+        endDate: "2026-09-10",
+        purpose: "Seattle trip",
+        preferredAirline: "Alaska",
+        proximityPreferred: true,
+        rawQuery: query,
+      };
+    }
+
+    // No Vegas default — leave destination open for the confirm UI / LLM revise.
     return {
       originAirport: DEMO_EMPLOYEE.homeAirport,
-      destinationCity: "Las Vegas",
-      destinationAirport: "LAS",
+      destinationCity: "Unknown",
+      destinationAirport: "XXX",
       startDate: "2026-09-22",
       endDate: "2026-09-25",
-      purpose: "MongoDB.local",
-      venueName: "MongoDB.local",
-      preferredAirline: "United",
-      proximityPreferred: true,
+      purpose: query.slice(0, 80),
+      preferredAirline: /delta/i.test(query)
+        ? "Delta"
+        : /american/i.test(query)
+          ? "American"
+          : /united/i.test(query)
+            ? "United"
+            : undefined,
+      proximityPreferred: /close|near|venue/i.test(query),
       rawQuery: query,
     };
   }
@@ -121,6 +176,11 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
   ) {}
 
   async parseTripRequest(query: string): Promise<ParsedTripRequest> {
+    // Scripted demo prompt stays deterministic for the presentation path.
+    if (isVegasDemoQuery(query)) {
+      return vegasDemoParse(query);
+    }
+
     try {
       const res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
@@ -134,7 +194,7 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
             {
               role: "system",
               content:
-                "Parse travel requests to JSON with originAirport, destinationCity, destinationAirport, startDate, endDate, purpose, venueName, preferredAirline, preferredHotelBrand, preferredCabin (economy|premium_economy|business), proximityPreferred, maxFlightCents, maxHotelNightlyCents, maxTotalCents. Dates ISO YYYY-MM-DD. Year 2026. Money fields are integer cents (e.g. $300 → 30000). Omit unknown fields.",
+                "Parse travel requests to JSON with originAirport, destinationCity, destinationAirport, startDate, endDate, purpose, venueName, preferredAirline, preferredHotelBrand, preferredCabin (economy|premium_economy|business), proximityPreferred, maxFlightCents, maxHotelNightlyCents, maxTotalCents. Dates ISO YYYY-MM-DD. Year 2026 unless the user specifies another year. Money fields are integer cents ($300 → 30000). Omit unknown fields. Do NOT invent Las Vegas / MongoDB.local unless the user asked for that.",
             },
             { role: "user", content: query },
           ],
@@ -148,7 +208,12 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
       const parsed = JSON.parse(
         data.choices[0]!.message.content,
       ) as ParsedTripRequest;
-      return { ...parsed, rawQuery: query };
+      return {
+        ...parsed,
+        ...normalizeMoneyPatch(parsed),
+        proximityPreferred: Boolean(parsed.proximityPreferred),
+        rawQuery: query,
+      };
     } catch {
       return new DemoLlmAdapter().parseTripRequest(query);
     }
@@ -197,15 +262,12 @@ Dates ISO YYYY-MM-DD. Year 2026 unless user specifies otherwise.`,
         (k) => (patch as Record<string, unknown>)[k] != null,
       );
       if (keys.length === 0) {
-        // Fall back to heuristics if the model returned an empty patch
         return reviseParsedTrip(current, message);
       }
       const next = applyTripPatch(current, patch, message);
       return {
         parsed: next,
-        reply:
-          parsedJson.reply?.trim() ||
-          `Updated ${keys.join(", ")}.`,
+        reply: parsedJson.reply?.trim() || `Updated ${keys.join(", ")}.`,
         changed: true,
       };
     } catch {
@@ -223,11 +285,7 @@ Dates ISO YYYY-MM-DD. Year 2026 unless user specifies otherwise.`,
   }
 }
 
-export function getLlmAdapter(): LlmAdapter {
-  // DEMO_MODE keeps the initial scripted parse deterministic.
-  if (process.env.DEMO_MODE === "true") {
-    return new DemoLlmAdapter();
-  }
+function openAiAdapterOrDemo(): LlmAdapter {
   const key = process.env.OPENAI_API_KEY;
   const base = process.env.OPENAI_BASE_URL;
   if (key && base) return new OpenAiCompatibleAdapter(base, key);
@@ -235,12 +293,14 @@ export function getLlmAdapter(): LlmAdapter {
 }
 
 /**
- * Revisions always prefer a live LLM when keys exist — even in DEMO_MODE —
- * so free-form budget/preference tweaks actually affect the booking search.
+ * Prefer live LLM when keys exist so free-form prompts are not forced to Vegas.
+ * Scripted MongoDB.local Vegas queries stay deterministic inside the OpenAI adapter.
  */
+export function getLlmAdapter(): LlmAdapter {
+  return openAiAdapterOrDemo();
+}
+
+/** Same as getLlmAdapter — revisions always use LLM when available. */
 export function getReviseLlmAdapter(): LlmAdapter {
-  const key = process.env.OPENAI_API_KEY;
-  const base = process.env.OPENAI_BASE_URL;
-  if (key && base) return new OpenAiCompatibleAdapter(base, key);
-  return new DemoLlmAdapter();
+  return openAiAdapterOrDemo();
 }
