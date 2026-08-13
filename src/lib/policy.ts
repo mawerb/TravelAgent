@@ -6,17 +6,40 @@ import type {
   TravelPolicyRules,
 } from "@/types";
 import { dollarsToCents } from "@/lib/money";
+import { formatUsd } from "@/lib/money";
+
+/** Normalize "Las Vegas, NV" / "Vegas" → cityCaps key. */
+export function normalizeCityKey(city: string): string {
+  const raw = city.toLowerCase().trim();
+  const aliases: Record<string, string> = {
+    vegas: "las vegas",
+    lasvegas: "las vegas",
+    "las vegas nv": "las vegas",
+    nyc: "new york",
+    "new york city": "new york",
+    "new york ny": "new york",
+    sf: "san francisco",
+    "san francisco ca": "san francisco",
+    "washington dc": "washington",
+    "washington d.c.": "washington",
+    "washington, dc": "washington",
+    "long beach ca": "long beach",
+    "los angeles ca": "los angeles",
+    "seattle wa": "seattle",
+  };
+  if (aliases[raw]) return aliases[raw]!;
+  const noState = raw.replace(/,?\s*(ca|ny|nv|wa|dc|d\.c\.)\s*$/i, "").trim();
+  return aliases[noState] ?? noState;
+}
 
 export function hotelMaxForCity(
   rules: TravelPolicyRules,
   city: string,
   isConference: boolean,
 ): number {
-  const key = city.toLowerCase();
+  const key = normalizeCityKey(city);
   let base =
     rules.hotels.cityCapsCents[key] ?? rules.hotels.standardMaxCents;
-  // Spec lists SF standard $250 but also SF $325 — seed uses cityCaps.
-  // Conference travel may exceed normal limit by conferenceExceedPercent.
   if (isConference) {
     base = Math.round(base * (1 + rules.hotels.conferenceExceedPercent / 100));
   }
@@ -45,10 +68,11 @@ export function validateItinerary(input: {
     isConference,
   );
 
-  // Economy required under 6 hours
   const hours = flight.durationMinutes / 60;
   if (hours < rules.flights.economyUnderHours && flight.cabin !== "economy") {
-    reasons.push("Economy fare required for flights under 6 hours");
+    reasons.push(
+      `Economy fare required for flights under ${rules.flights.economyUnderHours} hours`,
+    );
     status = "out_of_policy";
   }
 
@@ -78,7 +102,9 @@ export function validateItinerary(input: {
     totalCents > rules.approval.managerApprovalAboveCents;
 
   if (requiresManagerApproval) {
-    reasons.push("Trip above $2,500 requires manager approval");
+    reasons.push(
+      `Trip above ${formatUsd(rules.approval.managerApprovalAboveCents)} requires manager approval`,
+    );
     if (status === "compliant") status = "exception";
   }
 

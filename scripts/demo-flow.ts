@@ -43,6 +43,9 @@ async function main() {
     candidateId: result.recommended._id,
     bookingAttemptId: `ba_demo_${Date.now()}`,
   });
+  if (booked.kind !== "booked") {
+    throw new Error(`Expected booked, got ${booked.kind}`);
+  }
   console.log("Booking state:", booked.booking.state);
   console.log("Flight conf:", booked.booking.flight.confirmation);
   console.log("Hotel conf:", booked.booking.hotel.confirmation);

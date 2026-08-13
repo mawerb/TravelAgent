@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { hotelMaxForCity, validateItinerary } from "./policy";
+import { hotelMaxForCity, normalizeCityKey, validateItinerary } from "./policy";
 import { dollarsToCents } from "./money";
 import type { TravelPolicy } from "@/types";
 
@@ -37,8 +37,13 @@ const policy: TravelPolicy = {
 };
 
 describe("policy", () => {
+  it("normalizes city keys with state suffixes", () => {
+    assert.equal(normalizeCityKey("Las Vegas, NV"), "las vegas");
+    assert.equal(normalizeCityKey("Washington, DC"), "washington");
+  });
+
   it("allows conference bump on hotel max", () => {
-    const max = hotelMaxForCity(policy.rules, "Las Vegas", true);
+    const max = hotelMaxForCity(policy.rules, "Las Vegas, NV", true);
     assert.equal(max, Math.round(dollarsToCents(300) * 1.15));
   });
 

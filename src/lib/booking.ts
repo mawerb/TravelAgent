@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type {
+  ApprovalRequest,
   Booking,
   BookingState,
   CompanyBudgetLedger,
@@ -7,29 +8,47 @@ import type {
   PaymentAttempt,
   TripCandidate,
   TripRequest,
+  TravelPolicy,
 } from "@/types";
 import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
 import { getFlightProvider } from "@/lib/providers/flights";
 import { getHotelProvider } from "@/lib/providers/hotels";
 import { getStripeAdapter } from "@/lib/stripe";
-import { DEMO_ORG, EMP_ALEX_ID, LEDGER_ACME_ID, ORG_ACME_ID } from "@/lib/session";
+import { getDemoOrgDef } from "@/lib/demo-orgs";
+import { getDemoSession } from "@/lib/session";
 import { validateItinerary } from "@/lib/policy";
-import type { TravelPolicy } from "@/types";
+import { formatUsd } from "@/lib/money";
+import {
+  appBaseUrl,
+  bookingConfirmationSms,
+  resolveSmsTo,
+  sendSms,
+} from "@/lib/sms/twilio";
 
 export type BookingProgressEvent = {
   state: BookingState;
   message: string;
 };
 
-export type BookingResult = {
-  booking: Booking;
-  events: BookingProgressEvent[];
-};
+export type BookingResult =
+  | {
+      kind: "booked";
+      booking: Booking;
+      events: BookingProgressEvent[];
+    }
+  | {
+      kind: "needs_approval";
+      request: ApprovalRequest;
+      events: BookingProgressEvent[];
+    };
 
 export async function BookingOrchestrator(input: {
   candidateId: string;
   bookingAttemptId?: string;
+  /** Skip OOP/manager gate after a manager approved this request */
+  approvedRequestId?: string;
+  justification?: string;
 }): Promise<BookingResult> {
   const db = await getDb();
   const bookingAttemptId = input.bookingAttemptId ?? `ba_${randomUUID()}`;
@@ -39,7 +58,11 @@ export async function BookingOrchestrator(input: {
     bookingAttemptId,
   });
   if (existing?.state === "CONFIRMED") {
-    return { booking: existing, events: [{ state: "CONFIRMED", message: "Already confirmed" }] };
+    return {
+      kind: "booked",
+      booking: existing,
+      events: [{ state: "CONFIRMED", message: "Already confirmed" }],
+    };
   }
 
   const push = (state: BookingState, message: string) => {
@@ -49,7 +72,6 @@ export async function BookingOrchestrator(input: {
   push("READY", "Starting booking");
   push("VALIDATING", "Reloading itinerary and validating");
 
-  // 1. Reload selected itinerary from database — never trust client price
   const candidate = await col<TripCandidate>(db, "tripCandidates").findOne({
     _id: input.candidateId,
   });
@@ -66,22 +88,22 @@ export async function BookingOrchestrator(input: {
     throw Object.assign(new Error("Trip request not found"), { events });
   }
 
-  // 2. Check inventory
   if (candidate.flight.inventory <= 0) {
     push("FAILED", "Flight inventory unavailable");
     throw Object.assign(new Error("Flight sold out"), { events });
   }
 
-  // 3. Recalculate price from stored candidate (server source of truth)
   const totalCents = candidate.flightCents + candidate.hotelCents;
   if (totalCents !== candidate.totalCents) {
     push("FAILED", "Price mismatch");
     throw Object.assign(new Error("Price recalculation failed"), { events });
   }
 
-  // 4. Re-run policy validation
+  const orgDef = getDemoOrgDef(candidate.organizationId);
+  const session = await getDemoSession();
+
   const policy = await col<TravelPolicy>(db, "travelPolicies").findOne({
-    organizationId: ORG_ACME_ID,
+    organizationId: orgDef.organization._id,
     status: "active",
   });
   if (!policy) {
@@ -98,17 +120,43 @@ export async function BookingOrchestrator(input: {
     totalCents,
     nights: candidate.nights,
   });
-  if (policyResult.status === "out_of_policy") {
-    push("FAILED", "Out of policy");
-    throw Object.assign(new Error("Booking out of policy"), { events });
-  }
-  push("VALIDATING", "Policy verified");
 
-  // 5. Check corporate demo budget
+  const needsManager =
+    policyResult.status === "out_of_policy" ||
+    policyResult.requiresManagerApproval;
+
+  if (needsManager) {
+    if (input.approvedRequestId) {
+      const approved = await col<ApprovalRequest>(db, "approvalRequests").findOne({
+        _id: input.approvedRequestId,
+        candidateId: candidate._id,
+        status: "approved",
+      });
+      if (!approved) {
+        push("FAILED", "Manager approval missing");
+        throw Object.assign(new Error("Manager approval required"), { events });
+      }
+      push("VALIDATING", "Manager approval verified");
+    } else {
+      const request = await upsertApprovalRequest({
+        candidate,
+        tripRequest,
+        orgDef,
+        employeeName: session.employee.name,
+        policyResult,
+        justification: input.justification,
+      });
+      push("FAILED", "Sent to manager for approval");
+      return { kind: "needs_approval", request, events };
+    }
+  } else {
+    push("VALIDATING", "Policy verified");
+  }
+
   const ledger = await col<CompanyBudgetLedger>(
     db,
     "companyBudgetLedger",
-  ).findOne({ _id: LEDGER_ACME_ID });
+  ).findOne({ _id: orgDef.ledgerId });
   if (!ledger || ledger.availableCents < totalCents) {
     push("FAILED", "Insufficient corporate travel budget");
     throw Object.assign(new Error("Insufficient budget"), { events });
@@ -117,12 +165,12 @@ export async function BookingOrchestrator(input: {
   const booking: Booking = {
     _id: `book_${bookingAttemptId}`,
     bookingAttemptId,
-    organizationId: ORG_ACME_ID,
-    employeeId: EMP_ALEX_ID,
+    organizationId: orgDef.organization._id,
+    employeeId: candidate.employeeId || session.employee._id,
     tripRequestId: tripRequest._id,
     candidateId: candidate._id,
     state: "VALIDATING",
-    originCity: "San Francisco",
+    originCity: session.employee.city.split(",")[0] ?? "Origin",
     destinationCity: tripRequest.parsed.destinationCity,
     purpose: tripRequest.parsed.purpose,
     startDate: tripRequest.parsed.startDate,
@@ -144,7 +192,7 @@ export async function BookingOrchestrator(input: {
     hotelCents: candidate.hotelCents,
     totalCents,
     policyStatus: policyResult.status,
-    paymentLast4: DEMO_ORG.paymentMethod.last4,
+    paymentLast4: orgDef.organization.paymentMethod.last4,
     testMode: true,
     createdAt: new Date().toISOString(),
   };
@@ -155,7 +203,9 @@ export async function BookingOrchestrator(input: {
     const again = await col<Booking>(db, "bookings").findOne({
       bookingAttemptId,
     });
-    if (again?.state === "CONFIRMED") return { booking: again, events };
+    if (again?.state === "CONFIRMED") {
+      return { kind: "booked", booking: again, events };
+    }
     throw err;
   }
 
@@ -164,7 +214,6 @@ export async function BookingOrchestrator(input: {
   const hotels = getHotelProvider(db);
 
   try {
-    // 6–7. PaymentIntent authorize
     push("PAYMENT_AUTHORIZING", "Authorizing corporate payment");
     await col<Booking>(db, "bookings").updateOne(
       { bookingAttemptId },
@@ -174,13 +223,13 @@ export async function BookingOrchestrator(input: {
     const auth = await stripe.authorize({
       amountCents: totalCents,
       bookingAttemptId,
-      description: `Acme travel ${tripRequest.parsed.originAirport}-${tripRequest.parsed.destinationAirport}`,
+      description: `${orgDef.organization.name} travel ${tripRequest.parsed.originAirport}-${tripRequest.parsed.destinationAirport}`,
     });
 
     const payment: PaymentAttempt = {
       _id: `pay_${bookingAttemptId}`,
       bookingAttemptId,
-      organizationId: ORG_ACME_ID,
+      organizationId: orgDef.organization._id,
       amountCents: totalCents,
       stripePaymentIntentId: auth.paymentIntentId,
       status: "requires_capture",
@@ -195,7 +244,6 @@ export async function BookingOrchestrator(input: {
       { $set: { state: "PAYMENT_AUTHORIZED" } },
     );
 
-    // 8. Mock book flight
     push("BOOKING_FLIGHT", "Reserving flight");
     await col<Booking>(db, "bookings").updateOne(
       { bookingAttemptId },
@@ -214,7 +262,6 @@ export async function BookingOrchestrator(input: {
       },
     );
 
-    // 9. Mock book hotel
     push("BOOKING_HOTEL", "Reserving hotel");
     await col<Booking>(db, "bookings").updateOne(
       { bookingAttemptId },
@@ -233,7 +280,6 @@ export async function BookingOrchestrator(input: {
       },
     );
 
-    // 10. Capture Stripe payment
     push("PAYMENT_CAPTURE", "Capturing payment");
     await col<Booking>(db, "bookings").updateOne(
       { bookingAttemptId },
@@ -245,7 +291,6 @@ export async function BookingOrchestrator(input: {
       { $set: { status: "succeeded" } },
     );
 
-    // 11–12. Save booking + update ledger
     booking.state = "CONFIRMED";
     booking.confirmedAt = new Date().toISOString();
     await col<Booking>(db, "bookings").updateOne(
@@ -261,7 +306,7 @@ export async function BookingOrchestrator(input: {
     );
 
     await col<CompanyBudgetLedger>(db, "companyBudgetLedger").updateOne(
-      { _id: LEDGER_ACME_ID, availableCents: { $gte: totalCents } },
+      { _id: orgDef.ledgerId, availableCents: { $gte: totalCents } },
       {
         $inc: {
           spentCents: totalCents,
@@ -276,33 +321,40 @@ export async function BookingOrchestrator(input: {
       { $set: { status: "booked" } },
     );
 
-    // Auto expenses
+    if (input.approvedRequestId) {
+      await col<ApprovalRequest>(db, "approvalRequests").updateOne(
+        { _id: input.approvedRequestId },
+        { $set: { bookingId: booking._id } },
+      );
+    }
+
+    const payLabel = `${orgDef.organization.paymentMethod.label} •••• ${orgDef.organization.paymentMethod.last4}`;
     const expenses: Expense[] = [
       {
         _id: `exp_air_${bookingAttemptId}`,
-        organizationId: ORG_ACME_ID,
-        employeeId: EMP_ALEX_ID,
+        organizationId: orgDef.organization._id,
+        employeeId: booking.employeeId,
         bookingId: booking._id,
         category: "air_travel",
         vendor: `${candidate.flight.airline} Airlines`,
         amountCents: candidate.flightCents,
         status: "automatically_classified",
         policyStatus: policyResult.status,
-        paymentLabel: "Corporate Visa •••• 4242",
+        paymentLabel: payLabel,
         reimbursementRequired: false,
         createdAt: new Date().toISOString(),
       },
       {
         _id: `exp_hotel_${bookingAttemptId}`,
-        organizationId: ORG_ACME_ID,
-        employeeId: EMP_ALEX_ID,
+        organizationId: orgDef.organization._id,
+        employeeId: booking.employeeId,
         bookingId: booking._id,
         category: "lodging",
         vendor: candidate.hotel.brand,
         amountCents: candidate.hotelCents,
         status: "automatically_classified",
         policyStatus: policyResult.status,
-        paymentLabel: "Corporate Visa •••• 4242",
+        paymentLabel: payLabel,
         reimbursementRequired: false,
         createdAt: new Date().toISOString(),
       },
@@ -310,7 +362,31 @@ export async function BookingOrchestrator(input: {
     await col<Expense>(db, "expenses").insertMany(expenses);
 
     push("CONFIRMED", "You're booked.");
-    return { booking, events };
+
+    // Non-blocking booking confirmation SMS
+    try {
+      const to = resolveSmsTo(session.employee.phone);
+      if (to) {
+        await sendSms({
+          to,
+          purpose: "booking",
+          body: bookingConfirmationSms({
+            name: session.employee.name,
+            route: `${booking.flight.origin} → ${booking.flight.destination}`,
+            dates: `${booking.startDate} → ${booking.endDate}`,
+            hotel: booking.hotel.name,
+            airline: booking.flight.airline,
+            confirmation: booking.flight.confirmation,
+            tripUrl: `${appBaseUrl()}/trips/${booking._id}`,
+            totalLabel: formatUsd(booking.totalCents),
+          }),
+        });
+      }
+    } catch (err) {
+      console.warn("[sms] booking confirmation failed", err);
+    }
+
+    return { kind: "booked", booking, events };
   } catch (err) {
     push("ROLLBACK_REQUIRED", "Booking failed — rollback required");
     await col<Booking>(db, "bookings").updateOne(
@@ -327,4 +403,56 @@ export async function BookingOrchestrator(input: {
       { events },
     );
   }
+}
+
+async function upsertApprovalRequest(input: {
+  candidate: TripCandidate;
+  tripRequest: TripRequest;
+  orgDef: ReturnType<typeof getDemoOrgDef>;
+  employeeName: string;
+  policyResult: ReturnType<typeof validateItinerary>;
+  justification?: string;
+}): Promise<ApprovalRequest> {
+  const db = await getDb();
+  const now = new Date().toISOString();
+  const id = `apr_${input.candidate._id}`;
+  const existing = await col<ApprovalRequest>(db, "approvalRequests").findOne({
+    _id: id,
+  });
+  if (existing?.status === "pending") {
+    return existing;
+  }
+
+  const request: ApprovalRequest = {
+    _id: id,
+    organizationId: input.orgDef.organization._id,
+    employeeId: input.candidate.employeeId,
+    employeeName: input.employeeName,
+    managerName: input.orgDef.manager.name,
+    managerTitle: input.orgDef.manager.title,
+    candidateId: input.candidate._id,
+    tripRequestId: input.tripRequest._id,
+    status: "pending",
+    reasons: input.policyResult.reasons.filter((r) => r !== "Within travel policy"),
+    policyStatus:
+      input.policyResult.status === "out_of_policy" ? "out_of_policy" : "exception",
+    justification: input.justification,
+    summary: {
+      route: `${input.candidate.flight.origin} → ${input.candidate.flight.destination}`,
+      hotelName: input.candidate.hotel.name,
+      airline: input.candidate.flight.airline,
+      startDate: input.candidate.startDate,
+      endDate: input.candidate.endDate,
+      totalCents: input.candidate.totalCents,
+      nightlyRateCents: input.candidate.hotel.nightlyRateCents,
+    },
+    createdAt: now,
+  };
+
+  await col<ApprovalRequest>(db, "approvalRequests").updateOne(
+    { _id: id },
+    { $set: request },
+    { upsert: true },
+  );
+  return request;
 }
