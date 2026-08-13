@@ -1,0 +1,268 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import { Check, Loader2 } from "lucide-react";
+import type { Booking, TripCandidate } from "@/types";
+import { bookTripAction } from "@/app/actions/book";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { StatusPill } from "@/components/ui/status-pill";
+import { formatUsd } from "@/lib/money";
+
+type Phase = "confirm" | "progress" | "success" | "error";
+
+const PROGRESS_LABELS = [
+  "Policy verified",
+  "Corporate payment authorized",
+  "United flight reserved",
+  "Hotel reserved",
+  "Payment captured",
+] as const;
+
+export function BookingModal({
+  open,
+  onOpenChange,
+  candidate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidate: TripCandidate | null;
+}) {
+  const router = useRouter();
+  const [phase, setPhase] = useState<Phase>("confirm");
+  const [progressIdx, setProgressIdx] = useState(-1);
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attemptId] = useState(() => `ba_${Date.now()}`);
+
+  useEffect(() => {
+    if (!open) {
+      setPhase("confirm");
+      setProgressIdx(-1);
+      setBooking(null);
+      setError(null);
+    }
+  }, [open]);
+
+  async function confirm() {
+    if (!candidate) return;
+    setPhase("progress");
+    setProgressIdx(0);
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 1; i < PROGRESS_LABELS.length; i++) {
+      timers.push(setTimeout(() => setProgressIdx(i), i * 450));
+    }
+
+    const result = await bookTripAction({
+      candidateId: candidate._id,
+      bookingAttemptId: attemptId,
+    });
+
+    timers.forEach(clearTimeout);
+    setProgressIdx(PROGRESS_LABELS.length - 1);
+
+    if (!result.ok) {
+      setError(result.error);
+      setPhase("error");
+      return;
+    }
+
+    await new Promise((r) => setTimeout(r, 400));
+    setBooking(result.booking);
+    setPhase("success");
+    router.refresh();
+  }
+
+  if (!candidate) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md rounded-3xl border-border sm:max-w-md">
+        <AnimatePresence mode="wait">
+          {phase === "confirm" && (
+            <motion.div
+              key="confirm"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="space-y-5"
+            >
+              <DialogHeader>
+                <DialogTitle className="text-xl">Confirm booking</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 rounded-2xl bg-stone-50 p-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Trip</span>
+                  <span className="font-medium text-right">
+                    {candidate.flight.origin} → {candidate.flight.destination}
+                    <br />
+                    <span className="font-normal text-muted-foreground">
+                      Sep 22–25
+                    </span>
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Flight</span>
+                  <span className="font-medium">
+                    {formatUsd(candidate.flightCents)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Hotel</span>
+                  <span className="font-medium">
+                    {formatUsd(candidate.hotelCents)}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-border pt-3 text-base">
+                  <span className="font-medium">Total</span>
+                  <span className="font-semibold">
+                    {formatUsd(candidate.totalCents)}
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">Acme Corporate Travel</p>
+                    <p className="text-sm text-muted-foreground">
+                      Visa ending in 4242
+                    </p>
+                  </div>
+                  <StatusPill tone="info">TEST MODE</StatusPill>
+                </div>
+              </div>
+              <Button
+                className="h-11 w-full rounded-xl text-base"
+                onClick={confirm}
+              >
+                Confirm & Book
+              </Button>
+              <p className="text-center text-sm text-muted-foreground">
+                No personal payment required.
+              </p>
+            </motion.div>
+          )}
+
+          {phase === "progress" && (
+            <motion.div
+              key="progress"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="space-y-5 py-2"
+            >
+              <DialogHeader>
+                <DialogTitle className="text-xl">Booking your trip</DialogTitle>
+              </DialogHeader>
+              <ul className="space-y-3">
+                {PROGRESS_LABELS.map((label, i) => {
+                  const done = i <= progressIdx;
+                  const active = i === progressIdx;
+                  return (
+                    <li key={label} className="flex items-center gap-3 text-sm">
+                      {done ? (
+                        <span className="flex size-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+                          {active && i < PROGRESS_LABELS.length - 1 ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Check className="size-3.5" />
+                          )}
+                        </span>
+                      ) : (
+                        <span className="size-6 rounded-full bg-stone-100 ring-1 ring-stone-200" />
+                      )}
+                      <span className={done ? "font-medium" : "text-muted-foreground"}>
+                        {label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </motion.div>
+          )}
+
+          {phase === "success" && booking && (
+            <motion.div
+              key="success"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="space-y-5 py-1"
+            >
+              <div className="text-center">
+                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+                  <Check className="size-6" />
+                </div>
+                <DialogHeader>
+                  <DialogTitle className="text-2xl">You&apos;re booked.</DialogTitle>
+                </DialogHeader>
+                <p className="mt-2 text-muted-foreground">
+                  San Francisco → Las Vegas
+                  <br />
+                  Sep 22–25
+                </p>
+              </div>
+              <div className="space-y-3 rounded-2xl bg-stone-50 p-4 text-sm">
+                <div>
+                  <p className="font-medium">United Airlines</p>
+                  <p className="text-muted-foreground">
+                    Confirmation: {booking.flight.confirmation ?? "UA7X92L"}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium">{booking.hotel.brand}</p>
+                  <p className="text-muted-foreground">
+                    Confirmation: {booking.hotel.confirmation ?? "HLT83291"}
+                  </p>
+                </div>
+                <p className="border-t border-border pt-3 font-medium">
+                  {formatUsd(booking.totalCents)} charged to Acme Corporate Travel
+                </p>
+              </div>
+              <div className="flex justify-center">
+                <StatusPill tone="info">TEST MODE</StatusPill>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1 rounded-xl"
+                  onClick={() => {
+                    onOpenChange(false);
+                    router.push(`/trips/${booking._id}`);
+                  }}
+                >
+                  View trip
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-xl"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Done
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {phase === "error" && (
+            <motion.div key="error" className="space-y-4">
+              <DialogHeader>
+                <DialogTitle>Booking failed</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-red-700">{error}</p>
+              <Button variant="outline" onClick={() => setPhase("confirm")}>
+                Try again
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </DialogContent>
+    </Dialog>
+  );
+}
