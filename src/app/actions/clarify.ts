@@ -1,8 +1,9 @@
 "use server";
 
 import { TripRequestParser } from "@/lib/agents";
-import { buildTripConfirmation, reviseParsedTrip } from "@/lib/clarify";
+import { buildTripConfirmation } from "@/lib/clarify";
 import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
+import { getReviseLlmAdapter } from "@/lib/llm";
 import type { ParsedTripRequest, TripConfirmation } from "@/types";
 
 export async function clarifyTripAction(
@@ -40,9 +41,20 @@ export async function reviseTripAction(
     if (!message.trim()) {
       return { ok: false, error: "Say what you’d like to change." };
     }
-    const { parsed, reply } = reviseParsedTrip(current, message.trim());
+    const { parsed, reply, changed } =
+      await getReviseLlmAdapter().reviseTripRequest(current, message.trim());
     const { summary, questions } = buildTripConfirmation(parsed);
-    return { ok: true, data: { parsed, summary, questions, reply } };
+    return {
+      ok: true,
+      data: {
+        parsed,
+        summary,
+        questions,
+        reply: changed
+          ? reply
+          : reply || "No changes applied — try rephrasing your request.",
+      },
+    };
   } catch (err) {
     return {
       ok: false,

@@ -14,7 +14,7 @@ import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
 import { findHotelsNear, milesToMeters } from "@/lib/geo";
 import { getLlmAdapter } from "@/lib/llm";
-import { dollarsToCents } from "@/lib/money";
+import { dollarsToCents, formatUsd } from "@/lib/money";
 import { VEGAS_DEMO_ALLOWANCE_CENTS, validateItinerary } from "@/lib/policy";
 import { getFlightProvider } from "@/lib/providers/flights";
 import { computeScores } from "@/lib/ranking";
@@ -31,6 +31,7 @@ import {
 } from "@/lib/vector";
 import { hotelListingUrl, hotelRatesUrl } from "@/lib/links";
 import { HOTEL_DETAILS } from "@/lib/hotel-details";
+import { hasUserSearchOverrides } from "@/lib/clarify";
 
 function enrichHotel(
   hotel: {
@@ -193,15 +194,42 @@ export async function OptimizationAgent(input: {
 }): Promise<TripCandidate[]> {
   const nights = nightsBetween(input.parsed.startDate, input.parsed.endDate);
   const candidates: TripCandidate[] = [];
+  const userOverrides = hasUserSearchOverrides(input.parsed);
   const isVegasDemo =
     input.parsed.destinationAirport === "LAS" &&
-    /mongodb\.local/i.test(input.parsed.purpose);
+    /mongodb\.local/i.test(input.parsed.purpose) &&
+    !userOverrides;
 
   for (const flight of input.flights) {
     for (const hotel of input.hotels) {
+      if (
+        input.parsed.maxFlightCents != null &&
+        flight.priceCents > input.parsed.maxFlightCents
+      ) {
+        continue;
+      }
+      if (
+        input.parsed.maxHotelNightlyCents != null &&
+        hotel.nightlyRateCents > input.parsed.maxHotelNightlyCents
+      ) {
+        continue;
+      }
+      if (
+        input.parsed.preferredCabin &&
+        flight.cabin !== input.parsed.preferredCabin
+      ) {
+        continue;
+      }
+
       const flightCents = flight.priceCents;
       const hotelCents = hotel.nightlyRateCents * nights;
       const totalCents = flightCents + hotelCents;
+      if (
+        input.parsed.maxTotalCents != null &&
+        totalCents > input.parsed.maxTotalCents
+      ) {
+        continue;
+      }
       const policy = validateItinerary({
         policy: input.policy,
         parsed: input.parsed,
@@ -222,7 +250,6 @@ export async function OptimizationAgent(input: {
       });
 
       let pref = preferenceSimilarity(input.profile.embedding, embedding);
-      // Boost preferred airline / brand from profile
       if (
         input.profile.preferredAirlines.some((a) =>
           flight.airline.toLowerCase().includes(a.toLowerCase()),
@@ -231,11 +258,31 @@ export async function OptimizationAgent(input: {
         pref = Math.min(1, pref + 0.05);
       }
       if (
+        input.parsed.preferredAirline &&
+        flight.airline
+          .toLowerCase()
+          .includes(input.parsed.preferredAirline.toLowerCase())
+      ) {
+        pref = Math.min(1, pref + 0.15);
+      }
+      if (
         input.profile.preferredHotelBrands.some((b) =>
           hotel.brand.toLowerCase().includes(b.toLowerCase()),
         )
       ) {
         pref = Math.min(1, pref + 0.04);
+      }
+      if (
+        input.parsed.preferredHotelBrand &&
+        hotel.brand
+          .toLowerCase()
+          .includes(input.parsed.preferredHotelBrand.toLowerCase())
+      ) {
+        pref = Math.min(1, pref + 0.12);
+      }
+      if (!input.parsed.proximityPreferred) {
+        // User said distance is flexible — don't overweight proximity via pref
+        pref = Math.min(1, pref + 0.02);
       }
 
       const historicalFeedbackScore =
@@ -256,7 +303,9 @@ export async function OptimizationAgent(input: {
         policyCompliance: policy.compliant ? 1 : policy.status === "exception" ? 0.6 : 0.2,
         preferenceSimilarity: isHero ? 0.94 : pref,
         distanceMiles: hotel.distanceMiles,
-        conferenceRadiusMiles: policy.conferenceRadiusMiles,
+        conferenceRadiusMiles: input.parsed.proximityPreferred
+          ? policy.conferenceRadiusMiles
+          : Math.max(policy.conferenceRadiusMiles, 5),
         totalCents,
         allowanceCents,
         historicalFeedbackScore: isHero ? 0.95 : historicalFeedbackScore,
@@ -266,6 +315,13 @@ export async function OptimizationAgent(input: {
       const chips: string[] = [];
       if (policy.compliant) chips.push("Within travel policy");
       if (
+        input.parsed.preferredAirline &&
+        flight.airline
+          .toLowerCase()
+          .includes(input.parsed.preferredAirline.toLowerCase())
+      ) {
+        chips.push(`Matches ${input.parsed.preferredAirline}`);
+      } else if (
         input.profile.preferredAirlines.some((a) =>
           flight.airline.toLowerCase().includes(a.toLowerCase()),
         )
@@ -279,11 +335,29 @@ export async function OptimizationAgent(input: {
       if (hotel.room?.breakfastIncluded) chips.push("Breakfast included");
       if (hotel.room) chips.push(hotel.room.name);
       if (
+        input.parsed.preferredHotelBrand &&
+        hotel.brand
+          .toLowerCase()
+          .includes(input.parsed.preferredHotelBrand.toLowerCase())
+      ) {
+        chips.push(`${input.parsed.preferredHotelBrand} brand`);
+      } else if (
         input.profile.preferredHotelBrands.some((b) =>
           hotel.brand.toLowerCase().includes(b.toLowerCase()),
         )
       ) {
         chips.push("Matches previous hotel preferences");
+      }
+      if (input.parsed.maxFlightCents != null) {
+        chips.push(`Flight ≤ ${formatUsd(input.parsed.maxFlightCents)}`);
+      }
+      if (input.parsed.maxHotelNightlyCents != null) {
+        chips.push(
+          `Hotel ≤ ${formatUsd(input.parsed.maxHotelNightlyCents)}/night`,
+        );
+      }
+      if (input.parsed.maxTotalCents != null) {
+        chips.push(`Total ≤ ${formatUsd(input.parsed.maxTotalCents)}`);
       }
 
       const enriched = enrichHotel(hotel, input.parsed.startDate, input.parsed.endDate);
@@ -318,11 +392,46 @@ export async function OptimizationAgent(input: {
 
   candidates.sort((a, b) => b.scores.finalScore - a.scores.finalScore);
 
-  // Label top pick + two narrative alternatives for Vegas demo
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) {
+    const hints: string[] = [];
+    if (input.parsed.maxFlightCents != null) {
+      hints.push(`flight ≤ ${formatUsd(input.parsed.maxFlightCents)}`);
+    }
+    if (input.parsed.maxHotelNightlyCents != null) {
+      hints.push(
+        `hotel ≤ ${formatUsd(input.parsed.maxHotelNightlyCents)}/night`,
+      );
+    }
+    if (input.parsed.maxTotalCents != null) {
+      hints.push(`total ≤ ${formatUsd(input.parsed.maxTotalCents)}`);
+    }
+    throw new Error(
+      hints.length
+        ? `No trips match your caps (${hints.join(", ")}). Try raising a limit or clearing a cabin/brand filter.`
+        : "No trip candidates matched your revised preferences.",
+    );
+  }
+
+  // Prefer user-stated airline/brand when choosing the hero recommendation
+  const preferred =
+    candidates.find((c) => {
+      const airOk =
+        !input.parsed.preferredAirline ||
+        c.flight.airline
+          .toLowerCase()
+          .includes(input.parsed.preferredAirline.toLowerCase());
+      const brandOk =
+        !input.parsed.preferredHotelBrand ||
+        c.hotel.brand
+          .toLowerCase()
+          .includes(input.parsed.preferredHotelBrand.toLowerCase());
+      return airOk && brandOk;
+    }) ?? candidates[0]!;
 
   const recommended =
-    candidates.find((c) => c._id === CANDIDATE_VEGAS_HERO) ?? candidates[0]!;
+    (!userOverrides &&
+      candidates.find((c) => c._id === CANDIDATE_VEGAS_HERO)) ||
+    preferred;
   recommended.label = "recommended";
 
   const lowest =
@@ -337,7 +446,7 @@ export async function OptimizationAgent(input: {
       .sort((a, b) => a.hotel.distanceMiles - b.hotel.distanceMiles)[0] ?? null;
   if (bestLoc) bestLoc.label = "best_location";
 
-  // Force demo alternative numbers when present
+  // Force demo alternative numbers when present (scripted path only)
   if (isVegasDemo) {
     for (const c of candidates) {
       if (c.label === "lowest_cost" || c.label === "best_location") {
@@ -354,7 +463,6 @@ export async function OptimizationAgent(input: {
         c.hotel._id === "hotel_marriott_vegas_closest",
     );
     if (aaHyatt) {
-      // Spec: American + Hyatt = $912 / 87%
       aaHyatt.label = "lowest_cost";
       aaHyatt.flightCents = dollarsToCents(298);
       aaHyatt.hotelCents = dollarsToCents(614);
@@ -364,12 +472,14 @@ export async function OptimizationAgent(input: {
       aaHyatt.scores.finalScore = 0.87;
     }
     if (uaMarriott) {
-      // Spec: United + Marriott = $1,146 / 94% / 0.1 mi
       uaMarriott.label = "best_location";
       uaMarriott.flightCents = dollarsToCents(346);
       uaMarriott.hotelCents = dollarsToCents(800);
       uaMarriott.totalCents = dollarsToCents(1146);
-      uaMarriott.savingsCents = Math.max(0, dollarsToCents(1280) - dollarsToCents(1146));
+      uaMarriott.savingsCents = Math.max(
+        0,
+        dollarsToCents(1280) - dollarsToCents(1146),
+      );
       uaMarriott.scores.matchPercent = 94;
       uaMarriott.scores.finalScore = 0.94;
     }

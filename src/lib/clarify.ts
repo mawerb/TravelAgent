@@ -1,4 +1,5 @@
 import type { ClarifyingQuestion, ParsedTripRequest } from "@/types";
+import { dollarsToCents, formatUsd } from "@/lib/money";
 
 function formatRange(start: string, end: string): string {
   const opts: Intl.DateTimeFormatOptions = {
@@ -11,15 +12,36 @@ function formatRange(start: string, end: string): string {
   return `${s.toLocaleDateString("en-US", opts)} → ${e.toLocaleDateString("en-US", opts)}`;
 }
 
+function budgetLine(parsed: ParsedTripRequest): string | null {
+  const parts: string[] = [];
+  if (parsed.maxFlightCents != null) {
+    parts.push(`flight ≤ ${formatUsd(parsed.maxFlightCents)}`);
+  }
+  if (parsed.maxHotelNightlyCents != null) {
+    parts.push(`hotel ≤ ${formatUsd(parsed.maxHotelNightlyCents)}/night`);
+  }
+  if (parsed.maxTotalCents != null) {
+    parts.push(`total ≤ ${formatUsd(parsed.maxTotalCents)}`);
+  }
+  return parts.length ? parts.join("; ") : null;
+}
+
 /** Structured confirmations for chat/voice (ElevenLabs-ready) before searching. */
 export function buildTripConfirmation(parsed: ParsedTripRequest): {
   summary: string;
   questions: ClarifyingQuestion[];
 } {
   const airline = parsed.preferredAirline ?? "no airline preference";
+  const hotelBrand = parsed.preferredHotelBrand
+    ? `; prefer ${parsed.preferredHotelBrand} hotels`
+    : "";
+  const cabin = parsed.preferredCabin
+    ? `; ${parsed.preferredCabin.replace("_", " ")} cabin`
+    : "";
   const proximity = parsed.proximityPreferred
     ? "stay close to the venue"
     : "no proximity preference";
+  const budget = budgetLine(parsed);
 
   const questions: ClarifyingQuestion[] = [
     {
@@ -44,11 +66,20 @@ export function buildTripConfirmation(parsed: ParsedTripRequest): {
       id: "prefs",
       field: "prefs",
       prompt: "Still want these preferences applied?",
-      answer: `${airline}; ${proximity}`,
+      answer: `${airline}${hotelBrand}${cabin}; ${proximity}`,
     },
   ];
 
-  const summary = `I heard: ${parsed.originAirport} → ${parsed.destinationCity} for ${parsed.purpose}, ${formatRange(parsed.startDate, parsed.endDate)}. Prefer ${airline}, and ${proximity}. Please confirm before I search.`;
+  if (budget) {
+    questions.push({
+      id: "budget",
+      field: "budget",
+      prompt: "Budget caps to enforce when searching?",
+      answer: budget,
+    });
+  }
+
+  const summary = `I heard: ${parsed.originAirport} → ${parsed.destinationCity} for ${parsed.purpose}, ${formatRange(parsed.startDate, parsed.endDate)}. Prefer ${airline}${hotelBrand}${cabin}, and ${proximity}${budget ? `. Caps: ${budget}` : ""}. Please confirm before I search.`;
 
   return { summary, questions };
 }
@@ -94,9 +125,36 @@ function titleAirline(name: string): string {
   return name[0]!.toUpperCase() + name.slice(1);
 }
 
+function titleBrand(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower === "hilton") return "Hilton";
+  if (lower === "marriott") return "Marriott";
+  if (lower === "hyatt") return "Hyatt";
+  if (lower === "westin") return "Westin";
+  if (lower === "hampton") return "Hampton";
+  return name[0]!.toUpperCase() + name.slice(1);
+}
+
+function moneyToCents(raw: string): number {
+  return dollarsToCents(Number(raw.replace(/,/g, "")));
+}
+
+/** True when the user has set search constraints beyond the default demo script. */
+export function hasUserSearchOverrides(parsed: ParsedTripRequest): boolean {
+  return Boolean(
+    parsed.maxFlightCents != null ||
+      parsed.maxHotelNightlyCents != null ||
+      parsed.maxTotalCents != null ||
+      parsed.preferredHotelBrand ||
+      parsed.preferredCabin ||
+      (parsed.preferredAirline &&
+        parsed.preferredAirline.toLowerCase() !== "united") ||
+      parsed.proximityPreferred === false,
+  );
+}
+
 /**
- * Apply a natural-language revision to a parsed trip.
- * Deterministic heuristics first (demo + ElevenLabs-ready); LLM only when needed.
+ * Deterministic revision heuristics (fallback + demo). Prefer LLM via reviseTripRequest.
  */
 export function reviseParsedTrip(
   current: ParsedTripRequest,
@@ -106,7 +164,8 @@ export function reviseParsedTrip(
   if (!msg) {
     return {
       parsed: current,
-      reply: "Tell me what you’d like to change — dates, airline, destination, or proximity.",
+      reply:
+        "Tell me what you’d like to change — dates, airline, hotel brand, cabin, proximity, or price caps.",
       changed: false,
     };
   }
@@ -123,6 +182,23 @@ export function reviseParsedTrip(
     changes.push(`airline → ${next.preferredAirline}`);
   }
 
+  const brand = msg.match(/\b(hilton|marriott|hyatt|westin|hampton)\b/i);
+  if (brand) {
+    next.preferredHotelBrand = titleBrand(brand[1]!);
+    changes.push(`hotel brand → ${next.preferredHotelBrand}`);
+  }
+
+  if (/\bbusiness\b/i.test(msg)) {
+    next.preferredCabin = "business";
+    changes.push("cabin → business");
+  } else if (/premium\s*economy/i.test(msg)) {
+    next.preferredCabin = "premium_economy";
+    changes.push("cabin → premium economy");
+  } else if (/\beconomy\b/i.test(msg)) {
+    next.preferredCabin = "economy";
+    changes.push("cabin → economy");
+  }
+
   if (
     /not\s+close|don'?t\s+(need|have)\s+to\s+be\s+close|farther|any\s+hotel|distance\s+(doesn'?t|does\s+not)\s+matter/i.test(
       msg,
@@ -133,6 +209,52 @@ export function reviseParsedTrip(
   } else if (/close|near\s+(the\s+)?venue|keep me close/i.test(msg)) {
     next.proximityPreferred = true;
     changes.push("stay close to the venue");
+  }
+
+  const flightCap = msg.match(
+    /flight[s]?\s*(?:ticket|fare|price|cost)?\s*(?:under|below|max(?:imum)?|less\s+than|<=|≦)\s*\$?\s*([\d,]+)/i,
+  ) ?? msg.match(
+    /(?:under|below|max(?:imum)?|less\s+than)\s*\$?\s*([\d,]+)\s*(?:for\s+)?(?:the\s+)?flight/i,
+  );
+  if (flightCap) {
+    next.maxFlightCents = moneyToCents(flightCap[1]!);
+    changes.push(`flight cap → ${formatUsd(next.maxFlightCents)}`);
+  }
+
+  const hotelCap = msg.match(
+    /hotel\s*(?:rate|price|cost|night(?:ly)?)?\s*(?:under|below|max(?:imum)?|less\s+than|<=|≦)\s*\$?\s*([\d,]+)/i,
+  ) ?? msg.match(
+    /(?:under|below|max(?:imum)?|less\s+than)\s*\$?\s*([\d,]+)\s*(?:\/\s*night|a\s+night|per\s+night)?\s*(?:for\s+)?(?:the\s+)?hotel/i,
+  );
+  if (hotelCap) {
+    next.maxHotelNightlyCents = moneyToCents(hotelCap[1]!);
+    changes.push(`hotel cap → ${formatUsd(next.maxHotelNightlyCents)}/night`);
+  }
+
+  const totalCap = msg.match(
+    /(?:total|trip|overall|budget)\s*(?:under|below|max(?:imum)?|less\s+than|of|<=|≦)\s*\$?\s*([\d,]+)/i,
+  ) ?? msg.match(
+    /(?:under|below|max(?:imum)?|less\s+than)\s*\$?\s*([\d,]+)\s*(?:total|for\s+the\s+trip|overall)/i,
+  );
+  if (totalCap) {
+    next.maxTotalCents = moneyToCents(totalCap[1]!);
+    changes.push(`total cap → ${formatUsd(next.maxTotalCents)}`);
+  }
+
+  // Bare "under $X" with no noun → treat as total cap if nothing else matched
+  if (
+    !flightCap &&
+    !hotelCap &&
+    !totalCap &&
+    /(?:under|below|max(?:imum)?|less\s+than)\s*\$?\s*([\d,]+)/i.test(msg)
+  ) {
+    const bare = msg.match(
+      /(?:under|below|max(?:imum)?|less\s+than)\s*\$?\s*([\d,]+)/i,
+    );
+    if (bare) {
+      next.maxTotalCents = moneyToCents(bare[1]!);
+      changes.push(`total cap → ${formatUsd(next.maxTotalCents)}`);
+    }
   }
 
   const range = msg.match(
@@ -180,7 +302,6 @@ export function reviseParsedTrip(
   if (toAirport && !/to\s+the\b/i.test(msg)) {
     const code = toAirport[1]!.toUpperCase();
     if (code !== next.originAirport && MONTH[code.toLowerCase()] === undefined) {
-      // only treat as airport if looks like IATA (all caps letters) — already 3 letters
       if (!/^(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)$/i.test(code)) {
         next.destinationAirport = code;
         changes.push(`destination airport → ${code}`);
@@ -202,25 +323,13 @@ export function reviseParsedTrip(
     next.purpose = "MongoDB.local";
     next.venueName = "MongoDB.local";
     changes.push("purpose → MongoDB.local");
-  } else {
-    const purpose = msg.match(
-      /(?:purpose|venue|for)\s*[:=]?\s*([A-Za-z0-9 .'-]{3,40})/i,
-    );
-    if (purpose && !/for\s+(a\s+)?(flight|hotel|trip)/i.test(msg)) {
-      const value = purpose[1]!.trim();
-      if (!/^(united|delta|american|sep|september)/i.test(value)) {
-        next.purpose = value;
-        next.venueName = value;
-        changes.push(`purpose → ${value}`);
-      }
-    }
   }
 
   if (changes.length === 0) {
     return {
       parsed: current,
       reply:
-        "I couldn’t map that to a trip change. Try “prefer Delta”, “Sep 23–26”, or “don’t need to be close to the venue”.",
+        "I couldn’t map that yet. Try “flight under $300”, “hotel under $200/night”, “prefer Delta”, or “Sep 23–26”.",
       changed: false,
     };
   }
@@ -231,4 +340,20 @@ export function reviseParsedTrip(
     reply: `Got it — updated ${changes.join("; ")}.`,
     changed: true,
   };
+}
+
+/** Merge an LLM patch onto the current parsed trip. */
+export function applyTripPatch(
+  current: ParsedTripRequest,
+  patch: Partial<ParsedTripRequest>,
+  message: string,
+): ParsedTripRequest {
+  const next: ParsedTripRequest = {
+    ...current,
+    ...Object.fromEntries(
+      Object.entries(patch).filter(([, v]) => v !== undefined && v !== null),
+    ),
+    rawQuery: `${current.rawQuery}\n[revise] ${message}`,
+  };
+  return next;
 }

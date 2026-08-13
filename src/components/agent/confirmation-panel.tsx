@@ -169,7 +169,7 @@ export function ConfirmationPanel({
             }
           }}
           rows={2}
-          placeholder='e.g. "Prefer Delta" or "Change dates to Sep 23–26"'
+          placeholder='e.g. "flight under $300", "hotel under $200/night", "prefer Delta"'
           className="w-full resize-none rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-stone-300"
         />
         <div className="flex flex-wrap items-center gap-2">

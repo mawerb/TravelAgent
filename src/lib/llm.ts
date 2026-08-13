@@ -1,8 +1,16 @@
 import type { ParsedTripRequest } from "@/types";
+import {
+  applyTripPatch,
+  reviseParsedTrip,
+} from "@/lib/clarify";
 import { DEMO_EMPLOYEE } from "@/lib/session";
 
 export interface LlmAdapter {
   parseTripRequest(query: string): Promise<ParsedTripRequest>;
+  reviseTripRequest(
+    current: ParsedTripRequest,
+    message: string,
+  ): Promise<{ parsed: ParsedTripRequest; reply: string; changed: boolean }>;
   explainRecommendation(input: {
     hotelName: string;
     distanceMiles: number;
@@ -17,7 +25,6 @@ const VEGAS_PATTERN =
 export class DemoLlmAdapter implements LlmAdapter {
   async parseTripRequest(query: string): Promise<ParsedTripRequest> {
     if (VEGAS_PATTERN.test(query) || process.env.DEMO_MODE === "true") {
-      // Deterministic parse for the scripted demo (and fallback in DEMO_MODE)
       if (
         VEGAS_PATTERN.test(query) ||
         /mongodb\.local/i.test(query) ||
@@ -39,7 +46,6 @@ export class DemoLlmAdapter implements LlmAdapter {
       }
     }
 
-    // Minimal heuristic fallback for other chips
     if (/nyc|new york/i.test(query)) {
       return {
         originAirport: DEMO_EMPLOYEE.homeAirport,
@@ -68,6 +74,13 @@ export class DemoLlmAdapter implements LlmAdapter {
     };
   }
 
+  async reviseTripRequest(
+    current: ParsedTripRequest,
+    message: string,
+  ): Promise<{ parsed: ParsedTripRequest; reply: string; changed: boolean }> {
+    return reviseParsedTrip(current, message);
+  }
+
   async explainRecommendation(input: {
     hotelName: string;
     distanceMiles: number;
@@ -78,6 +91,29 @@ export class DemoLlmAdapter implements LlmAdapter {
   }
 }
 
+type ReviseLlmJson = {
+  reply?: string;
+  patch?: Partial<ParsedTripRequest>;
+};
+
+/** Models sometimes return dollars; our fields are cents. */
+function normalizeMoneyPatch(
+  patch: Partial<ParsedTripRequest>,
+): Partial<ParsedTripRequest> {
+  const next = { ...patch };
+  for (const key of [
+    "maxFlightCents",
+    "maxHotelNightlyCents",
+    "maxTotalCents",
+  ] as const) {
+    const value = next[key];
+    if (typeof value === "number" && value > 0 && value < 1000) {
+      next[key] = Math.round(value * 100);
+    }
+  }
+  return next;
+}
+
 export class OpenAiCompatibleAdapter implements LlmAdapter {
   constructor(
     private baseUrl: string,
@@ -85,7 +121,6 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
   ) {}
 
   async parseTripRequest(query: string): Promise<ParsedTripRequest> {
-    // ponytail: live LLM parse is optional; fall back to demo adapter on any failure.
     try {
       const res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
@@ -99,7 +134,7 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
             {
               role: "system",
               content:
-                "Parse travel requests to JSON with originAirport, destinationCity, destinationAirport, startDate, endDate, purpose, venueName, preferredAirline, proximityPreferred. Dates ISO YYYY-MM-DD. Year 2026.",
+                "Parse travel requests to JSON with originAirport, destinationCity, destinationAirport, startDate, endDate, purpose, venueName, preferredAirline, preferredHotelBrand, preferredCabin (economy|premium_economy|business), proximityPreferred, maxFlightCents, maxHotelNightlyCents, maxTotalCents. Dates ISO YYYY-MM-DD. Year 2026. Money fields are integer cents (e.g. $300 → 30000). Omit unknown fields.",
             },
             { role: "user", content: query },
           ],
@@ -110,10 +145,71 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
       const data = (await res.json()) as {
         choices: { message: { content: string } }[];
       };
-      const parsed = JSON.parse(data.choices[0]!.message.content) as ParsedTripRequest;
+      const parsed = JSON.parse(
+        data.choices[0]!.message.content,
+      ) as ParsedTripRequest;
       return { ...parsed, rawQuery: query };
     } catch {
       return new DemoLlmAdapter().parseTripRequest(query);
+    }
+  }
+
+  async reviseTripRequest(
+    current: ParsedTripRequest,
+    message: string,
+  ): Promise<{ parsed: ParsedTripRequest; reply: string; changed: boolean }> {
+    try {
+      const res = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: `You revise a corporate travel request from a short user message.
+Return JSON: { "reply": string, "patch": { ...only fields to change } }.
+Allowed patch keys: originAirport, destinationCity, destinationAirport, startDate, endDate, purpose, venueName, preferredAirline, preferredHotelBrand, preferredCabin (economy|premium_economy|business), proximityPreferred (boolean), maxFlightCents, maxHotelNightlyCents, maxTotalCents (integer USD cents; $300 = 30000).
+If the user sets a flight/hotel/total budget or price limit, you MUST set the matching max*Cents field.
+If nothing changed, return { "reply": "...", "patch": {} }.
+Dates ISO YYYY-MM-DD. Year 2026 unless user specifies otherwise.`,
+            },
+            {
+              role: "user",
+              content: JSON.stringify({ current, message }),
+            },
+          ],
+          response_format: { type: "json_object" },
+        }),
+      });
+      if (!res.ok) throw new Error("LLM revise failed");
+      const data = (await res.json()) as {
+        choices: { message: { content: string } }[];
+      };
+      const parsedJson = JSON.parse(
+        data.choices[0]!.message.content,
+      ) as ReviseLlmJson;
+      const patch = normalizeMoneyPatch(parsedJson.patch ?? {});
+      const keys = Object.keys(patch).filter(
+        (k) => (patch as Record<string, unknown>)[k] != null,
+      );
+      if (keys.length === 0) {
+        // Fall back to heuristics if the model returned an empty patch
+        return reviseParsedTrip(current, message);
+      }
+      const next = applyTripPatch(current, patch, message);
+      return {
+        parsed: next,
+        reply:
+          parsedJson.reply?.trim() ||
+          `Updated ${keys.join(", ")}.`,
+        changed: true,
+      };
+    } catch {
+      return reviseParsedTrip(current, message);
     }
   }
 
@@ -128,10 +224,21 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
 }
 
 export function getLlmAdapter(): LlmAdapter {
-  // DEMO_MODE keeps the live script deterministic — never depend on model output for airport codes.
+  // DEMO_MODE keeps the initial scripted parse deterministic.
   if (process.env.DEMO_MODE === "true") {
     return new DemoLlmAdapter();
   }
+  const key = process.env.OPENAI_API_KEY;
+  const base = process.env.OPENAI_BASE_URL;
+  if (key && base) return new OpenAiCompatibleAdapter(base, key);
+  return new DemoLlmAdapter();
+}
+
+/**
+ * Revisions always prefer a live LLM when keys exist — even in DEMO_MODE —
+ * so free-form budget/preference tweaks actually affect the booking search.
+ */
+export function getReviseLlmAdapter(): LlmAdapter {
   const key = process.env.OPENAI_API_KEY;
   const base = process.env.OPENAI_BASE_URL;
   if (key && base) return new OpenAiCompatibleAdapter(base, key);

@@ -91,4 +91,25 @@ describe("clarify", () => {
     assert.equal(parsed.startDate, "2026-09-23");
     assert.equal(parsed.endDate, "2026-09-26");
   });
+
+  it("revises flight and hotel price caps from natural language", () => {
+    const base = {
+      originAirport: "SFO",
+      destinationCity: "Las Vegas",
+      destinationAirport: "LAS",
+      startDate: "2026-09-22",
+      endDate: "2026-09-25",
+      purpose: "MongoDB.local",
+      preferredAirline: "United",
+      proximityPreferred: true,
+      rawQuery: "demo",
+    };
+    const { parsed, changed } = reviseParsedTrip(
+      base,
+      "Keep the flight under $320 and hotel under $220 a night",
+    );
+    assert.equal(changed, true);
+    assert.equal(parsed.maxFlightCents, 32000);
+    assert.equal(parsed.maxHotelNightlyCents, 22000);
+  });
 });

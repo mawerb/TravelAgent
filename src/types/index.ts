@@ -145,7 +145,13 @@ export type ParsedTripRequest = {
   purpose: string;
   venueName?: string;
   preferredAirline?: string;
+  preferredHotelBrand?: string;
+  preferredCabin?: "economy" | "premium_economy" | "business";
   proximityPreferred: boolean;
+  /** Hard caps from user revisions (cents). Applied when searching. */
+  maxFlightCents?: number;
+  maxHotelNightlyCents?: number;
+  maxTotalCents?: number;
   rawQuery: string;
 };
 
@@ -332,7 +338,7 @@ export type AgentActivityStep = {
 /** Structured agent follow-ups — speakable later via ElevenLabs. */
 export type ClarifyingQuestion = {
   id: string;
-  field: "dates" | "route" | "purpose" | "prefs";
+  field: "dates" | "route" | "purpose" | "prefs" | "budget";
   prompt: string;
   answer: string;
 };
