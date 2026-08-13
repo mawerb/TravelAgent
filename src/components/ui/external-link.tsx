@@ -1,3 +1,5 @@
+"use client";
+
 import { ExternalLink as ExternalLinkIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
