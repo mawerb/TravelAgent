@@ -2,6 +2,7 @@ import type {
   AgentActivityStep,
   EmployeeProfile,
   FlightOffer,
+  HotelRoom,
   ParsedTripRequest,
   SearchResult,
   TravelPolicy,
@@ -28,7 +29,67 @@ import {
   buildItineraryEmbedding,
   preferenceSimilarity,
 } from "@/lib/vector";
-import { hotelUrl } from "@/lib/links";
+import { hotelListingUrl, hotelRatesUrl } from "@/lib/links";
+import { HOTEL_DETAILS } from "@/lib/hotel-details";
+
+function enrichHotel(
+  hotel: {
+    _id: string;
+    name: string;
+    brand: string;
+    city: string;
+    location: { type: "Point"; coordinates: [number, number] };
+    nightlyRateCents: number;
+    stars: number;
+    freeCancellation: boolean;
+    characteristics: string[];
+    distanceMiles: number;
+    amenities?: string[];
+    address?: string;
+    neighborhood?: string;
+    room?: HotelRoom;
+    listingUrl?: string;
+    url?: string;
+  },
+  checkIn: string,
+  checkOut: string,
+) {
+  const details = HOTEL_DETAILS[hotel._id];
+  const room =
+    hotel.room ??
+    details?.room ??
+    ({
+      name: "Standard King",
+      bedType: "1 King bed",
+      sleeps: 2,
+      refundable: hotel.freeCancellation,
+      breakfastIncluded: false,
+    } satisfies HotelRoom);
+
+  return {
+    ...hotel,
+    distanceMiles: hotel.distanceMiles ?? 99,
+    amenities: hotel.amenities?.length
+      ? hotel.amenities
+      : (details?.amenities ?? ["Free Wi‑Fi"]),
+    address: hotel.address ?? details?.address,
+    neighborhood: hotel.neighborhood ?? details?.neighborhood,
+    room,
+    listingUrl: hotelListingUrl({
+      hotelId: hotel._id,
+      name: hotel.name,
+      city: hotel.city,
+    }),
+    /** Dated rates — secondary; listingUrl is the shareable durable link */
+    url: hotelRatesUrl({
+      hotelId: hotel._id,
+      name: hotel.name,
+      city: hotel.city,
+      checkIn,
+      checkOut,
+    }),
+  };
+}
 
 export async function TripRequestParser(query: string): Promise<ParsedTripRequest> {
   return getLlmAdapter().parseTripRequest(query);
@@ -122,6 +183,11 @@ export async function OptimizationAgent(input: {
     freeCancellation: boolean;
     characteristics: string[];
     distanceMiles: number;
+    amenities?: string[];
+    address?: string;
+    neighborhood?: string;
+    room?: HotelRoom;
+    listingUrl?: string;
     url?: string;
   }>;
 }): Promise<TripCandidate[]> {
@@ -207,7 +273,11 @@ export async function OptimizationAgent(input: {
         chips.push("Preferred airline");
       }
       chips.push(`${hotel.distanceMiles.toFixed(1)} mi from conference`);
-      if (hotel.freeCancellation) chips.push("Free cancellation");
+      if (hotel.freeCancellation || hotel.room?.refundable) {
+        chips.push("Free cancellation");
+      }
+      if (hotel.room?.breakfastIncluded) chips.push("Breakfast included");
+      if (hotel.room) chips.push(hotel.room.name);
       if (
         input.profile.preferredHotelBrands.some((b) =>
           hotel.brand.toLowerCase().includes(b.toLowerCase()),
@@ -215,6 +285,8 @@ export async function OptimizationAgent(input: {
       ) {
         chips.push("Matches previous hotel preferences");
       }
+
+      const enriched = enrichHotel(hotel, input.parsed.startDate, input.parsed.endDate);
 
       candidates.push({
         _id: isHero
@@ -225,18 +297,10 @@ export async function OptimizationAgent(input: {
         employeeId: input.profile.employeeId,
         label: "alternative",
         flight,
-        hotel: {
-          ...hotel,
-          distanceMiles: hotel.distanceMiles,
-          url: hotelUrl({
-            hotelId: hotel._id,
-            name: hotel.name,
-            city: hotel.city,
-            checkIn: input.parsed.startDate,
-            checkOut: input.parsed.endDate,
-          }),
-        },
+        hotel: enriched,
         nights,
+        startDate: input.parsed.startDate,
+        endDate: input.parsed.endDate,
         flightCents,
         hotelCents,
         totalCents,
@@ -418,18 +482,19 @@ export async function runTravelSearch(
     freeCancellation: boolean;
     characteristics: string[];
     distanceMiles: number;
+    amenities?: string[];
+    address?: string;
+    neighborhood?: string;
+    room?: HotelRoom;
+    listingUrl?: string;
     url?: string;
-  }>).map((h) => ({
-    ...h,
-    distanceMiles: h.distanceMiles ?? 99,
-    url: hotelUrl({
-      hotelId: h._id,
-      name: h.name,
-      city: h.city,
-      checkIn: parsed.startDate,
-      checkOut: parsed.endDate,
-    }),
-  }));
+  }>).map((h) =>
+    enrichHotel(
+      { ...h, distanceMiles: h.distanceMiles ?? 99 },
+      parsed.startDate,
+      parsed.endDate,
+    ),
+  );
 
   const all = await OptimizationAgent({
     tripRequestId,

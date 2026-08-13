@@ -24,6 +24,7 @@ import {
 } from "@/lib/session";
 import { ALEX_EMBEDDING } from "@/lib/vector";
 import { HOTEL_URLS, POLICY_PDF_PATH } from "@/lib/links";
+import { HOTEL_DETAILS } from "@/lib/hotel-details";
 
 // MongoDB.local Las Vegas venue (near Las Vegas Convention Center area)
 const VEGAS_VENUE: [number, number] = [-115.1537, 36.1315];
@@ -244,7 +245,9 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.6,
       freeCancellation: true,
       characteristics: ["conference_adjacent", "gym", "wifi"],
+      listingUrl: HOTEL_URLS.hotel_hilton_vegas_near,
       url: HOTEL_URLS.hotel_hilton_vegas_near,
+      ...HOTEL_DETAILS.hotel_hilton_vegas_near!,
     },
     {
       _id: "hotel_marriott_vegas_closest",
@@ -257,7 +260,9 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.7,
       freeCancellation: true,
       characteristics: ["closest", "business_center"],
+      listingUrl: HOTEL_URLS.hotel_marriott_vegas_closest,
       url: HOTEL_URLS.hotel_marriott_vegas_closest,
+      ...HOTEL_DETAILS.hotel_marriott_vegas_closest!,
     },
     {
       _id: "hotel_hyatt_vegas",
@@ -270,7 +275,9 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.2,
       freeCancellation: true,
       characteristics: ["value"],
+      listingUrl: HOTEL_URLS.hotel_hyatt_vegas,
       url: HOTEL_URLS.hotel_hyatt_vegas,
+      ...HOTEL_DETAILS.hotel_hyatt_vegas!,
     },
     {
       _id: "hotel_westin_vegas",
@@ -282,7 +289,9 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.3,
       freeCancellation: false,
       characteristics: ["spa"],
+      listingUrl: HOTEL_URLS.hotel_westin_vegas,
       url: HOTEL_URLS.hotel_westin_vegas,
+      ...HOTEL_DETAILS.hotel_westin_vegas!,
     },
     {
       _id: "hotel_hampton_vegas",
@@ -294,7 +303,9 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       stars: 4.0,
       freeCancellation: true,
       characteristics: ["breakfast"],
+      listingUrl: HOTEL_URLS.hotel_hampton_vegas,
       url: HOTEL_URLS.hotel_hampton_vegas,
+      ...HOTEL_DETAILS.hotel_hampton_vegas!,
     },
   ];
 

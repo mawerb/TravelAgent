@@ -99,26 +99,34 @@ export function BookingModal({
                 <DialogTitle className="text-xl">Confirm booking</DialogTitle>
               </DialogHeader>
               <div className="space-y-3 rounded-2xl bg-stone-50 p-4 text-sm">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground">Trip</span>
                   <span className="font-medium text-right">
                     {candidate.flight.origin} → {candidate.flight.destination}
                     <br />
                     <span className="font-normal text-muted-foreground">
-                      Sep 22–25
+                      {candidate.startDate} → {candidate.endDate} ·{" "}
+                      {candidate.nights} night
+                      {candidate.nights === 1 ? "" : "s"}
                     </span>
                   </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground">Flight</span>
-                  <span className="font-medium">
+                  <span className="text-right font-medium">
+                    {candidate.flight.airline} ·{" "}
                     {formatUsd(candidate.flightCents)}
                   </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground">Hotel</span>
-                  <span className="font-medium">
-                    {formatUsd(candidate.hotelCents)}
+                  <span className="text-right font-medium">
+                    {candidate.hotel.name}
+                    <br />
+                    <span className="font-normal text-muted-foreground">
+                      {candidate.hotel.room?.name ?? candidate.hotel.brand} ·{" "}
+                      {formatUsd(candidate.hotelCents)}
+                    </span>
                   </span>
                 </div>
                 <div className="flex justify-between border-t border-border pt-3 text-base">

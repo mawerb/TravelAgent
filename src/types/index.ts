@@ -87,6 +87,15 @@ export type Venue = {
   location: GeoPoint;
 };
 
+export type HotelRoom = {
+  name: string;
+  bedType: string;
+  sleeps: number;
+  refundable: boolean;
+  breakfastIncluded: boolean;
+  description?: string;
+};
+
 export type Hotel = {
   _id: string;
   name: string;
@@ -97,7 +106,17 @@ export type Hotel = {
   stars: number;
   freeCancellation: boolean;
   characteristics: string[];
-  /** Public listing / brand page so users can verify the property */
+  amenities: string[];
+  address?: string;
+  neighborhood?: string;
+  room: HotelRoom;
+  /**
+   * Stable brand property page — shareable; does not depend on a booking session.
+   */
+  listingUrl?: string;
+  /**
+   * Optional dated availability/rates deep link (may redirect; prefer listingUrl to share).
+   */
   url?: string;
 };
 
@@ -159,6 +178,8 @@ export type TripCandidate = {
   flight: FlightOffer;
   hotel: Hotel & { distanceMiles: number };
   nights: number;
+  startDate: string;
+  endDate: string;
   flightCents: MoneyCents;
   hotelCents: MoneyCents;
   totalCents: MoneyCents;
@@ -217,7 +238,14 @@ export type Booking = {
     distanceMiles: number;
     nightlyRateCents: MoneyCents;
     confirmation?: string;
+    /** Stable property page */
+    listingUrl?: string;
+    /** Dated rates link (optional) */
     url?: string;
+    roomName?: string;
+    bedType?: string;
+    amenities?: string[];
+    address?: string;
   };
   flightCents: MoneyCents;
   hotelCents: MoneyCents;

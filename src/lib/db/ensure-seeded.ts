@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
 import { seedDemoData } from "@/lib/db/seed";
 import { ensureIndexes } from "@/lib/db/indexes";
+import { HOTEL_DETAILS } from "@/lib/hotel-details";
 import { HOTEL_URLS, POLICY_PDF_PATH } from "@/lib/links";
 import { ORG_ACME_ID, POLICY_ACME_ID } from "@/lib/session";
 import type { Hotel, Organization, TravelPolicy } from "@/types";
@@ -11,7 +12,15 @@ declare global {
   var _demoSeedPromise: Promise<void> | undefined;
 }
 
-/** Patch live Atlas docs that were seeded before urls existed. */
+const HOTEL_NAMES: Record<string, string> = {
+  hotel_hilton_vegas_near: "Hilton Grand Vacations Club Elara",
+  hotel_marriott_vegas_closest: "Renaissance Las Vegas Hotel",
+  hotel_hampton_vegas: "Hampton Inn Las Vegas Strip South",
+  hotel_westin_vegas: "The Westin Las Vegas Hotel & Spa",
+  hotel_hyatt_vegas: "Hyatt Place Las Vegas",
+};
+
+/** Patch live Atlas docs that were seeded before listing/room fields existed. */
 async function ensureListingUrls(): Promise<void> {
   const db = await getDb();
   await ensureIndexes(db);
@@ -24,23 +33,22 @@ async function ensureListingUrls(): Promise<void> {
       },
     },
   );
-  for (const [id, url] of Object.entries(HOTEL_URLS)) {
+  for (const [id, listingUrl] of Object.entries(HOTEL_URLS)) {
+    const details = HOTEL_DETAILS[id];
     await col<Hotel>(db, "hotels").updateOne(
       { _id: id },
       {
         $set: {
-          url,
-          ...(id === "hotel_hilton_vegas_near"
-            ? { name: "Hilton Grand Vacations Club Elara" }
-            : {}),
-          ...(id === "hotel_marriott_vegas_closest"
-            ? { name: "Renaissance Las Vegas Hotel" }
-            : {}),
-          ...(id === "hotel_hampton_vegas"
-            ? { name: "Hampton Inn Las Vegas Strip South" }
-            : {}),
-          ...(id === "hotel_westin_vegas"
-            ? { name: "The Westin Las Vegas Hotel & Spa" }
+          listingUrl,
+          url: listingUrl,
+          ...(HOTEL_NAMES[id] ? { name: HOTEL_NAMES[id] } : {}),
+          ...(details
+            ? {
+                amenities: details.amenities,
+                address: details.address,
+                neighborhood: details.neighborhood,
+                room: details.room,
+              }
             : {}),
         },
       },

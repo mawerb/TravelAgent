@@ -11,6 +11,22 @@ import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 
+function formatDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? `${h}h ${m.toString().padStart(2, "0")}m` : `${m}m`;
+}
+
+function formatRange(start: string, end: string): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+  };
+  const s = new Date(start + "T12:00:00");
+  const e = new Date(end + "T12:00:00");
+  return `${s.toLocaleDateString("en-US", opts)}–${e.toLocaleDateString("en-US", { day: "numeric" })}`;
+}
+
 export function RecommendationCard({
   candidate,
   onBook,
@@ -22,6 +38,10 @@ export function RecommendationCard({
 }) {
   const [openWhy, setOpenWhy] = useState(false);
   const [openDebug, setOpenDebug] = useState(false);
+  const room = candidate.hotel.room;
+  const listing =
+    candidate.hotel.listingUrl ?? candidate.hotel.url;
+  const rates = candidate.hotel.url;
 
   return (
     <div className="overflow-hidden rounded-3xl border border-border bg-white shadow-sm ring-1 ring-black/[0.03]">
@@ -33,6 +53,10 @@ export function RecommendationCard({
           <h2 className="mt-1 text-2xl font-semibold tracking-tight">
             {candidate.flight.origin} → {candidate.flight.destination}
           </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {formatRange(candidate.startDate, candidate.endDate)} ·{" "}
+            {candidate.nights} night{candidate.nights === 1 ? "" : "s"}
+          </p>
         </div>
         <StatusPill tone="compliant" className="text-sm px-3 py-1">
           {candidate.scores.matchPercent}% match
@@ -49,12 +73,20 @@ export function RecommendationCard({
             {candidate.flight.origin} → {candidate.flight.destination}
           </p>
           <p className="mt-1 text-sm">
-            {candidate.flight.departTime} – {candidate.flight.arriveTime}
+            Depart {candidate.flight.departTime} · Arrive{" "}
+            {candidate.flight.arriveTime}
           </p>
           <p className="text-sm text-muted-foreground">
-            {candidate.flight.stops === 0 ? "Nonstop" : `${candidate.flight.stops} stop`} ·{" "}
+            {formatDuration(candidate.flight.durationMinutes)} ·{" "}
+            {candidate.flight.stops === 0
+              ? "Nonstop"
+              : `${candidate.flight.stops} stop`}{" "}
+            ·{" "}
             {candidate.flight.cabin[0]!.toUpperCase()}
             {candidate.flight.cabin.slice(1).replace("_", " ")}
+          </p>
+          <p className="mt-1 text-sm font-medium">
+            {formatUsd(candidate.flightCents)}
           </p>
           {candidate.flight.url ? (
             <p className="mt-2">
@@ -69,8 +101,20 @@ export function RecommendationCard({
             Hotel
           </p>
           <p className="mt-2 text-lg font-medium">{candidate.hotel.name}</p>
-          <p className="text-sm">
-            {formatUsd(candidate.hotel.nightlyRateCents)}/night
+          {candidate.hotel.neighborhood ? (
+            <p className="text-sm text-muted-foreground">
+              {candidate.hotel.neighborhood}
+            </p>
+          ) : null}
+          {candidate.hotel.address ? (
+            <p className="text-sm text-muted-foreground">
+              {candidate.hotel.address}
+            </p>
+          ) : null}
+          <p className="mt-1 text-sm">
+            {formatUsd(candidate.hotel.nightlyRateCents)}/night ·{" "}
+            {formatUsd(candidate.hotelCents)} total · {candidate.hotel.stars}{" "}
+            stars
           </p>
           <p className="text-sm text-muted-foreground">
             {formatMiles(candidate.hotel.distanceMiles)} from{" "}
@@ -81,16 +125,65 @@ export function RecommendationCard({
               className="text-sky-700 hover:underline"
             >
               MongoDB.local
-            </a>{" "}
-            · {candidate.hotel.stars} stars
+            </a>
           </p>
-          {candidate.hotel.url ? (
-            <p className="mt-2">
-              <ExternalLink href={candidate.hotel.url}>
-                View hotel with dates
-              </ExternalLink>
-            </p>
+
+          {room ? (
+            <div className="mt-3 rounded-2xl border border-border/80 bg-stone-50/80 px-3 py-2.5">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                Room to book
+              </p>
+              <p className="mt-1 font-medium">{room.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {room.bedType} · sleeps {room.sleeps}
+                {room.breakfastIncluded ? " · breakfast included" : ""}
+                {room.refundable ? " · free cancellation" : " · non-refundable"}
+              </p>
+              {room.description ? (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {room.description}
+                </p>
+              ) : null}
+            </div>
           ) : null}
+
+          {candidate.hotel.amenities?.length ? (
+            <div className="mt-3">
+              <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                Amenities
+              </p>
+              <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                {candidate.hotel.amenities.map((a) => (
+                  <li
+                    key={a}
+                    className="rounded-full bg-white px-2.5 py-0.5 text-xs text-stone-700 ring-1 ring-stone-200"
+                  >
+                    {a}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="mt-3 space-y-1">
+            {listing ? (
+              <p>
+                <ExternalLink href={listing}>
+                  View property page
+                </ExternalLink>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  shareable · doesn’t expire
+                </span>
+              </p>
+            ) : null}
+            {rates && rates !== listing ? (
+              <p>
+                <ExternalLink href={rates}>
+                  Check rates for these dates
+                </ExternalLink>
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -164,6 +257,7 @@ export function RecommendationCard({
                 },
                 scores: candidate.scores,
                 preferenceMatch: `${Math.round(candidate.scores.preferenceSimilarity * 100)}%`,
+                room: candidate.hotel.room,
               },
               null,
               2,
@@ -202,6 +296,7 @@ export function AlternativeCard({
       : candidate.label === "best_location"
         ? "Best location"
         : "Alternative";
+  const listing = candidate.hotel.listingUrl ?? candidate.hotel.url;
 
   return (
     <button
@@ -215,6 +310,11 @@ export function AlternativeCard({
           <p className="mt-1 text-lg font-semibold">
             {candidate.flight.airline} + {candidate.hotel.brand}
           </p>
+          {candidate.hotel.room ? (
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {candidate.hotel.room.name}
+            </p>
+          ) : null}
         </div>
         <StatusPill tone="info">{candidate.scores.matchPercent}% match</StatusPill>
       </div>
@@ -228,15 +328,18 @@ export function AlternativeCard({
         </p>
       ) : (
         <p className="mt-1 text-sm text-muted-foreground">
-          {formatMiles(candidate.hotel.distanceMiles)} from venue.
+          {formatMiles(candidate.hotel.distanceMiles)} from venue
+          {candidate.hotel.amenities?.[0]
+            ? ` · ${candidate.hotel.amenities[0]}`
+            : ""}
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-3">
         {candidate.flight.url ? (
           <ExternalLink href={candidate.flight.url}>Flight</ExternalLink>
         ) : null}
-        {candidate.hotel.url ? (
-          <ExternalLink href={candidate.hotel.url}>Hotel</ExternalLink>
+        {listing ? (
+          <ExternalLink href={listing}>Property</ExternalLink>
         ) : null}
       </div>
     </button>

@@ -39,7 +39,10 @@ export function withFlightUrl(
   };
 }
 
-/** Brand overview pages (seed / identity). Prefer hotelUrl() for dated booking links. */
+/**
+ * Stable brand property pages — shareable, no session/token, do not expire.
+ * Prefer these as the primary “verify this hotel” link.
+ */
 export const HOTEL_URLS: Record<string, string> = {
   hotel_hilton_vegas_near:
     "https://www.hilton.com/en/hotels/lasehgv-hilton-grand-vacations-club-elara/",
@@ -59,11 +62,24 @@ function ymdToUsShort(ymd: string): string {
   return `${m}/${d}/${y!.slice(2)}`;
 }
 
+/** Stable property page (shareable; does not expire). */
+export function hotelListingUrl(input: {
+  hotelId?: string;
+  name: string;
+  city?: string;
+}): string {
+  if (input.hotelId && HOTEL_URLS[input.hotelId]) {
+    return HOTEL_URLS[input.hotelId]!;
+  }
+  const q = [input.name, input.city].filter(Boolean).join(" ");
+  return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+}
+
 /**
- * Dated hotel search/booking URL so policy nights are visible on the listing.
- * Brand deep-links when we know property codes; otherwise Google Hotels + dates.
+ * Dated rates/availability deep link. Useful for checking nights, but brand
+ * rate-list URLs can redirect or vary by session — use hotelListingUrl to share.
  */
-export function hotelUrl(input: {
+export function hotelRatesUrl(input: {
   hotelId?: string;
   name: string;
   city?: string;
@@ -88,6 +104,9 @@ export function hotelUrl(input: {
     }
   }
 }
+
+/** @deprecated use hotelRatesUrl — kept name for call-site clarity during transition */
+export const hotelUrl = hotelRatesUrl;
 
 /** Resolve hotel id from a display name when booking only stored the name. */
 export function hotelIdFromName(name: string): string | undefined {

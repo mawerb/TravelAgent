@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { hotelUrl, googleFlightsUrl } from "./links";
+import { hotelUrl, hotelListingUrl, googleFlightsUrl } from "./links";
 import { buildTripConfirmation, reviseParsedTrip } from "./clarify";
 
 describe("links", () => {
-  it("embeds hotel check-in and check-out on Hilton deep link", () => {
+  it("embeds hotel check-in and check-out on Hilton rates deep link", () => {
     const url = hotelUrl({
       hotelId: "hotel_hilton_vegas_near",
       name: "Hilton Grand Vacations Club Elara",
@@ -15,7 +15,19 @@ describe("links", () => {
     assert.match(url, /departureDate=2026-09-25/);
   });
 
-  it("embeds dates on Google Hotels fallback", () => {
+  it("uses a stable property listing URL without dates (shareable)", () => {
+    const url = hotelListingUrl({
+      hotelId: "hotel_hilton_vegas_near",
+      name: "Hilton Grand Vacations Club Elara",
+    });
+    assert.equal(
+      url,
+      "https://www.hilton.com/en/hotels/lasehgv-hilton-grand-vacations-club-elara/",
+    );
+    assert.doesNotMatch(url, /arrivalDate|fromDate|dates=/);
+  });
+
+  it("embeds dates on Google Hotels fallback rates link", () => {
     const url = hotelUrl({
       name: "Unknown Inn",
       city: "Las Vegas",

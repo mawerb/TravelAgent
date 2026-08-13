@@ -4,7 +4,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { ExternalLink } from "@/components/ui/external-link";
 import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
-import { googleFlightsUrl, hotelUrl, hotelIdFromName } from "@/lib/links";
+import { googleFlightsUrl, hotelListingUrl, hotelIdFromName } from "@/lib/links";
 
 function formatRange(start: string, end: string) {
   const opts: Intl.DateTimeFormatOptions = {
@@ -29,13 +29,13 @@ export function UpcomingTripCard({ booking }: { booking: Booking }) {
       returnDate: booking.endDate,
       airline: booking.flight.airline,
     });
-  const hotelHref = hotelUrl({
-    hotelId: hotelIdFromName(booking.hotel.name),
-    name: booking.hotel.name,
-    city: booking.destinationCity,
-    checkIn: booking.startDate,
-    checkOut: booking.endDate,
-  });
+  const listingHref =
+    booking.hotel.listingUrl ??
+    hotelListingUrl({
+      hotelId: hotelIdFromName(booking.hotel.name),
+      name: booking.hotel.name,
+      city: booking.destinationCity,
+    });
 
   return (
     <div className="overflow-hidden rounded-3xl border border-border bg-white shadow-sm ring-1 ring-black/[0.03]">
@@ -77,11 +77,14 @@ export function UpcomingTripCard({ booking }: { booking: Booking }) {
             Hotel
           </p>
           <p className="mt-1 font-medium">{booking.hotel.name}</p>
+          {booking.hotel.roomName ? (
+            <p className="text-sm text-muted-foreground">{booking.hotel.roomName}</p>
+          ) : null}
           <p className="text-sm text-muted-foreground">
             {formatMiles(booking.hotel.distanceMiles)} from venue
           </p>
           <p className="mt-2">
-            <ExternalLink href={hotelHref}>View hotel with dates</ExternalLink>
+            <ExternalLink href={listingHref}>View property</ExternalLink>
           </p>
         </div>
         <div>

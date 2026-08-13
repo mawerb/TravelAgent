@@ -9,7 +9,7 @@ import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
 import { getBooking } from "@/lib/data/bookings";
 import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
-import { googleFlightsUrl, hotelUrl, hotelIdFromName } from "@/lib/links";
+import { googleFlightsUrl, hotelListingUrl, hotelRatesUrl, hotelIdFromName } from "@/lib/links";
 
 export default async function TripDetailPage({
   params,
@@ -23,6 +23,7 @@ export default async function TripDetailPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const isPast = booking.endDate < today;
+  const hotelId = hotelIdFromName(booking.hotel.name);
   const flightHref =
     booking.flight.url ??
     googleFlightsUrl({
@@ -35,13 +36,28 @@ export default async function TripDetailPage({
       returnDate: booking.endDate,
       airline: booking.flight.airline,
     });
-  const hotelHref = hotelUrl({
-    hotelId: hotelIdFromName(booking.hotel.name),
+  const listingHref =
+    booking.hotel.listingUrl ??
+    hotelListingUrl({
+      hotelId,
+      name: booking.hotel.name,
+      city: booking.destinationCity,
+    });
+  const ratesHref = hotelRatesUrl({
+    hotelId,
     name: booking.hotel.name,
     city: booking.destinationCity,
     checkIn: booking.startDate,
     checkOut: booking.endDate,
   });
+
+  const roomLine = [
+    booking.hotel.roomName,
+    booking.hotel.bedType,
+    booking.hotel.address,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="space-y-8">
@@ -78,11 +94,21 @@ export default async function TripDetailPage({
         <TimelineItem
           title="Hotel check-in"
           detail={`${booking.hotel.name} · ${formatMiles(booking.hotel.distanceMiles)} from venue · Confirmation ${booking.hotel.confirmation ?? "—"}`}
-          link={{ href: hotelHref, label: "View hotel with dates" }}
+          link={{ href: listingHref, label: "View property page" }}
         />
+        {roomLine ? (
+          <TimelineItem title="Room" detail={roomLine} />
+        ) : null}
+        {booking.hotel.amenities?.length ? (
+          <TimelineItem
+            title="Amenities"
+            detail={booking.hotel.amenities.join(" · ")}
+          />
+        ) : null}
         <TimelineItem
           title="Stay"
           detail={`${booking.startDate} → ${booking.endDate}`}
+          link={{ href: ratesHref, label: "Check rates for these dates" }}
         />
         <TimelineItem
           title="Return"
