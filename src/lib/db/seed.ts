@@ -22,6 +22,8 @@ import {
   POLICY_ACME_ID,
   VENUE_MDB_LOCAL_VEGAS,
 } from "@/lib/session";
+import { getDemoOrgDef } from "@/lib/demo-orgs";
+import { upsertAllDemoOrgs } from "@/lib/db/demo-orgs-seed";
 import { ALEX_EMBEDDING } from "@/lib/vector";
 import { HOTEL_URLS, POLICY_PDF_PATH } from "@/lib/links";
 import { HOTEL_DETAILS } from "@/lib/hotel-details";
@@ -59,27 +61,11 @@ export async function seedDemoData(): Promise<{ ok: true }> {
   // Brief yield so concurrent ensureDemoSeeded callers share one seed promise
   await new Promise((r) => setTimeout(r, 0));
 
-  const org: Organization = {
-    _id: ORG_ACME_ID,
-    name: "Acme Technologies",
-    paymentMethod: {
-      brand: "visa",
-      last4: "4242",
-      label: "Acme Corporate Travel",
-      testMode: true,
-    },
-  };
+  const mdb = getDemoOrgDef(ORG_ACME_ID);
+  const org: Organization = mdb.organization;
 
   const employees: Employee[] = [
-    {
-      _id: EMP_ALEX_ID,
-      organizationId: ORG_ACME_ID,
-      name: "Alex Morgan",
-      title: "Senior Software Engineer",
-      city: "San Francisco, CA",
-      homeAirport: "SFO",
-      email: "alex.morgan@acme.tech",
-    },
+    mdb.employee,
     {
       _id: "emp_jordan",
       organizationId: ORG_ACME_ID,
@@ -87,7 +73,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       title: "Product Manager",
       city: "New York, NY",
       homeAirport: "JFK",
-      email: "jordan.lee@acme.tech",
+      email: "jordan.lee@mongodb.com",
     },
     {
       _id: "emp_priya",
@@ -96,7 +82,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       title: "Solutions Architect",
       city: "Austin, TX",
       homeAirport: "AUS",
-      email: "priya.shah@acme.tech",
+      email: "priya.shah@mongodb.com",
     },
     {
       _id: "emp_marcus",
@@ -105,7 +91,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       title: "Engineering Manager",
       city: "Seattle, WA",
       homeAirport: "SEA",
-      email: "marcus.johnson@acme.tech",
+      email: "marcus.johnson@mongodb.com",
     },
   ];
 
@@ -182,46 +168,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
     },
   ];
 
-  const policy: TravelPolicy = {
-    _id: POLICY_ACME_ID,
-    organizationId: ORG_ACME_ID,
-    status: "active",
-    source: "Acme_Travel_Policy_2026.pdf",
-    sourceUrl: POLICY_PDF_PATH,
-    rules: {
-      flights: {
-        economyUnderHours: 6,
-        premiumEconomyOverHours: 6,
-        businessRequiresVpApproval: true,
-        preferredAirlines: ["United", "Delta"],
-        refundableRequired: false,
-      },
-      hotels: {
-        // Spec: standard $250; SF $325 listed separately; Insights friction uses SF $250 narrative.
-        // We keep standardMax $250 and city caps for NYC/SF used by validation.
-        // Conference may exceed by 15% — Vegas conference → ~$287.5, demo hotel $246 ok.
-        // Insights card references "Current policy: $250/night" for SF friction.
-        standardMaxCents: dollarsToCents(250),
-        cityCapsCents: {
-          "san francisco": dollarsToCents(250),
-          "new york": dollarsToCents(350),
-          "las vegas": dollarsToCents(300),
-        },
-        conferenceExceedPercent: 15,
-        conferenceRadiusMiles: 1,
-      },
-      transportation: {
-        ridesharePermitted: true,
-        rentalRequiresJustification: true,
-      },
-      approval: {
-        managerApprovalAboveCents: dollarsToCents(2500),
-        outOfPolicyRequiresJustification: true,
-      },
-    },
-    createdAt: "2026-01-15T00:00:00.000Z",
-    updatedAt: "2026-01-15T00:00:00.000Z",
-  };
+  const policy: TravelPolicy = mdb.policy;
 
   const venues: Venue[] = [
     {
@@ -233,6 +180,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
   ];
 
   // Hotels around Las Vegas venue — distances designed for demo
+  const hotelFetchedAt = new Date().toISOString();
   const hotels: Hotel[] = [
     {
       _id: "hotel_hilton_vegas_near",
@@ -247,6 +195,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       characteristics: ["conference_adjacent", "gym", "wifi"],
       listingUrl: HOTEL_URLS.hotel_hilton_vegas_near,
       url: HOTEL_URLS.hotel_hilton_vegas_near,
+      fetchedAt: hotelFetchedAt,
       ...HOTEL_DETAILS.hotel_hilton_vegas_near!,
     },
     {
@@ -262,6 +211,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       characteristics: ["closest", "business_center"],
       listingUrl: HOTEL_URLS.hotel_marriott_vegas_closest,
       url: HOTEL_URLS.hotel_marriott_vegas_closest,
+      fetchedAt: hotelFetchedAt,
       ...HOTEL_DETAILS.hotel_marriott_vegas_closest!,
     },
     {
@@ -277,6 +227,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       characteristics: ["value"],
       listingUrl: HOTEL_URLS.hotel_hyatt_vegas,
       url: HOTEL_URLS.hotel_hyatt_vegas,
+      fetchedAt: hotelFetchedAt,
       ...HOTEL_DETAILS.hotel_hyatt_vegas!,
     },
     {
@@ -291,6 +242,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       characteristics: ["spa"],
       listingUrl: HOTEL_URLS.hotel_westin_vegas,
       url: HOTEL_URLS.hotel_westin_vegas,
+      fetchedAt: hotelFetchedAt,
       ...HOTEL_DETAILS.hotel_westin_vegas!,
     },
     {
@@ -305,6 +257,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
       characteristics: ["breakfast"],
       listingUrl: HOTEL_URLS.hotel_hampton_vegas,
       url: HOTEL_URLS.hotel_hampton_vegas,
+      fetchedAt: hotelFetchedAt,
       ...HOTEL_DETAILS.hotel_hampton_vegas!,
     },
   ];
@@ -741,6 +694,7 @@ export async function seedDemoData(): Promise<{ ok: true }> {
   await col<Expense>(db, "expenses").insertMany(pastExpenses);
   await col<Feedback>(db, "feedback").insertMany(feedbackDocs);
   await col<PolicySuggestion>(db, "policySuggestions").insertMany(suggestions);
+  await upsertAllDemoOrgs(db);
 
   return { ok: true };
 }

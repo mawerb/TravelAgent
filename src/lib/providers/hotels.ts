@@ -1,7 +1,7 @@
 import type { Db } from "mongodb";
 import type { Hotel } from "@/types";
-import { col } from "@/lib/db/collections";
-import { findHotelsNear, milesToMeters, type HotelNear } from "@/lib/geo";
+import { getHotelsWithCache } from "@/lib/inventory/cache";
+import type { HotelNear } from "@/lib/geo";
 
 export interface HotelProvider {
   searchHotels(input: {
@@ -21,17 +21,14 @@ export class MockHotelProvider implements HotelProvider {
     venueCoordinates?: [number, number];
     maxDistanceMeters?: number;
   }): Promise<HotelNear[] | Hotel[]> {
-    if (input.venueCoordinates) {
-      return findHotelsNear(this.db, {
-        coordinates: input.venueCoordinates,
-        maxDistanceMeters: input.maxDistanceMeters ?? milesToMeters(5),
-        limit: 50,
-      });
-    }
-    return col<Hotel>(this.db, "hotels")
-      .find({ city: input.city })
-      .limit(50)
-      .toArray();
+    const hit = await getHotelsWithCache(this.db, {
+      city: input.city,
+      venueCoordinates: input.venueCoordinates,
+      maxMiles: input.maxDistanceMeters
+        ? input.maxDistanceMeters / 1609.34
+        : 5,
+    });
+    return hit.items;
   }
 
   async bookHotel(hotelId: string): Promise<{ confirmation: string }> {

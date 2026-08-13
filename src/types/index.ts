@@ -10,7 +10,7 @@ export type Organization = {
   name: string;
   paymentMethod: {
     brand: "visa";
-    last4: "4242";
+    last4: string;
     label: string;
     testMode: true;
   };
@@ -24,6 +24,8 @@ export type Employee = {
   city: string;
   homeAirport: string;
   email: string;
+  /** E.164 phone for Twilio SMS (demo). Overridden by DEMO_SMS_TO when set. */
+  phone?: string;
 };
 
 export type EmployeeProfile = {
@@ -118,6 +120,8 @@ export type Hotel = {
    * Optional dated availability/rates deep link (may redirect; prefer listingUrl to share).
    */
   url?: string;
+  /** When this hotel inventory was last scraped/refreshed into MongoDB */
+  fetchedAt?: string;
 };
 
 export type FlightOffer = {
@@ -134,6 +138,18 @@ export type FlightOffer = {
   inventory: number;
   /** Public search / airline page so users can verify the route */
   url?: string;
+};
+
+/** Cached flight inventory for a route+dates — refreshed when stale (1 week+). */
+export type FlightRouteInventory = {
+  _id: string;
+  origin: string;
+  destination: string;
+  date?: string;
+  returnDate?: string;
+  offers: FlightOffer[];
+  fetchedAt: string;
+  source: "scrape" | "seed" | "duffel";
 };
 
 export type ParsedTripRequest = {
@@ -197,6 +213,8 @@ export type TripCandidate = {
   whyThisTrip: string;
   embedding: number[];
   createdAt: string;
+  /** Multi-OTA compare (≤10 shareable sites) for cheapest/best booking links */
+  bookingCompare?: import("@/lib/booking-sites").BookingCompareResult;
 };
 
 export type TripRequest = {
@@ -302,6 +320,33 @@ export type Feedback = {
   createdAt: string;
 };
 
+export type ApprovalRequest = {
+  _id: string;
+  organizationId: string;
+  employeeId: string;
+  employeeName: string;
+  managerName: string;
+  managerTitle: string;
+  candidateId: string;
+  tripRequestId: string;
+  status: "pending" | "approved" | "denied";
+  reasons: string[];
+  policyStatus: "exception" | "out_of_policy";
+  justification?: string;
+  summary: {
+    route: string;
+    hotelName: string;
+    airline: string;
+    startDate: string;
+    endDate: string;
+    totalCents: MoneyCents;
+    nightlyRateCents: MoneyCents;
+  };
+  createdAt: string;
+  resolvedAt?: string;
+  bookingId?: string;
+};
+
 export type PolicySuggestion = {
   _id: string;
   organizationId: string;
@@ -314,8 +359,20 @@ export type PolicySuggestion = {
   medianApprovedHotelCents: MoneyCents;
   recommendation: string;
   predictedImpact: string[];
-  status: "open" | "reviewed" | "dismissed";
+  status: "open" | "reviewed" | "dismissed" | "applied";
+  /** Structured patch a manager can edit before applying to active policy */
+  proposedChanges?: {
+    standardMaxCents?: MoneyCents;
+    cityCapsCents?: Record<string, MoneyCents>;
+    conferenceRadiusMiles?: number;
+    conferenceExceedPercent?: number;
+    managerApprovalAboveCents?: MoneyCents;
+    economyUnderHours?: number;
+  };
+  sourceFeedbackIds?: string[];
   createdAt: string;
+  updatedAt?: string;
+  appliedAt?: string;
 };
 
 export type CompanyBudgetLedger = {

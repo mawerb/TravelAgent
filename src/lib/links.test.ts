@@ -31,17 +31,19 @@ describe("links", () => {
     assert.doesNotMatch(url, /arrivalDate|fromDate|dates=/);
   });
 
-  it("embeds dates on Google Hotels fallback rates link", () => {
+  it("embeds check-in/out on Booking.com fallback rates link", () => {
     const url = hotelUrl({
       name: "Unknown Inn",
       city: "Las Vegas",
       checkIn: "2026-09-22",
       checkOut: "2026-09-25",
     });
-    assert.match(url, /dates=2026-09-22%2C2026-09-25/);
+    assert.match(url, /booking\.com/);
+    assert.match(url, /checkin=2026-09-22/);
+    assert.match(url, /checkout=2026-09-25/);
   });
 
-  it("can include return date on Google Flights", () => {
+  it("puts origin, destination, and both dates in the Kayak flight path", () => {
     const url = googleFlightsUrl({
       origin: "SFO",
       destination: "LAS",
@@ -49,7 +51,8 @@ describe("links", () => {
       returnDate: "2026-09-25",
       airline: "United",
     });
-    assert.match(url, /returning%202026-09-25/);
+    assert.match(url, /kayak\.com\/flights\/SFO-LAS\/2026-09-22\/2026-09-25/);
+    assert.match(url, /airlines(%3D|=)UA/);
   });
 });
 

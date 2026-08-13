@@ -1,6 +1,18 @@
 import type { FlightOffer } from "@/types";
 
-/** Google Flights search so users can verify the route exists. */
+const AIRLINE_IATA: Record<string, string> = {
+  united: "UA",
+  delta: "DL",
+  american: "AA",
+  alaska: "AS",
+  jetblue: "B6",
+  southwest: "WN",
+};
+
+/**
+ * Round-trip (or one-way) search with dates in the path — opens reliably in browsers.
+ * Google Travel `?q=` / loose deep links currently redirect to /unsupported.
+ */
 export function googleFlightsUrl(input: {
   origin: string;
   destination: string;
@@ -8,17 +20,25 @@ export function googleFlightsUrl(input: {
   returnDate?: string;
   airline?: string;
 }): string {
-  const q = [
-    "Flights",
-    input.airline ? `on ${input.airline}` : null,
-    `from ${input.origin}`,
-    `to ${input.destination}`,
-    `on ${input.date}`,
-    input.returnDate ? `returning ${input.returnDate}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;
+  const origin = (input.origin || "").toUpperCase();
+  const destination = (input.destination || "").toUpperCase();
+  if (!origin || !destination || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
+    const q = ["flights", origin && `from ${origin}`, destination && `to ${destination}`, input.date]
+      .filter(Boolean)
+      .join(" ");
+    return `https://www.kayak.com/search?q=${encodeURIComponent(q)}`;
+  }
+
+  const path = input.returnDate
+    ? `${origin}-${destination}/${input.date}/${input.returnDate}`
+    : `${origin}-${destination}/${input.date}`;
+  const url = new URL(`https://www.kayak.com/flights/${path}`);
+  const code = input.airline
+    ? AIRLINE_IATA[input.airline.toLowerCase()]
+    : undefined;
+  if (code) url.searchParams.set("fs", `airlines=${code}`);
+  url.searchParams.set("sort", "bestflight_a");
+  return url.toString();
 }
 
 export function withFlightUrl(
@@ -26,7 +46,6 @@ export function withFlightUrl(
   date: string,
   returnDate?: string,
 ): FlightOffer {
-  if (flight.url) return flight;
   return {
     ...flight,
     url: googleFlightsUrl({
@@ -41,7 +60,7 @@ export function withFlightUrl(
 
 /**
  * Stable brand property pages — shareable, no session/token, do not expire.
- * Prefer these as the primary “verify this hotel” link.
+ * Prefer these as the primary “verify this hotel” link when dates aren’t needed.
  */
 export const HOTEL_URLS: Record<string, string> = {
   hotel_hilton_vegas_near:
@@ -72,12 +91,11 @@ export function hotelListingUrl(input: {
     return HOTEL_URLS[input.hotelId]!;
   }
   const q = [input.name, input.city].filter(Boolean).join(" ");
-  return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}`;
+  return `https://www.kayak.com/search?q=${encodeURIComponent(`hotel ${q}`)}`;
 }
 
 /**
- * Dated rates/availability deep link. Useful for checking nights, but brand
- * rate-list URLs can redirect or vary by session — use hotelListingUrl to share.
+ * Dated rates/availability deep link — check-in/out appear on the destination site.
  */
 export function hotelRatesUrl(input: {
   hotelId?: string;
@@ -99,8 +117,15 @@ export function hotelRatesUrl(input: {
     case "hotel_hyatt_vegas":
       return `https://www.hyatt.com/shop/rooms/laszl?checkinDate=${checkIn}&checkoutDate=${checkOut}`;
     default: {
-      const q = [input.name, input.city].filter(Boolean).join(" ");
-      return `https://www.google.com/travel/hotels?q=${encodeURIComponent(q)}&dates=${checkIn}%2C${checkOut}`;
+      // Booking.com reliably pre-fills check-in / check-out (Google Hotels deep links redirect to /unsupported).
+      const ss = [input.name, input.city].filter(Boolean).join(", ");
+      const url = new URL("https://www.booking.com/searchresults.html");
+      url.searchParams.set("ss", ss);
+      url.searchParams.set("checkin", checkIn);
+      url.searchParams.set("checkout", checkOut);
+      url.searchParams.set("group_adults", "1");
+      url.searchParams.set("no_rooms", "1");
+      return url.toString();
     }
   }
 }

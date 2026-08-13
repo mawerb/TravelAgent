@@ -11,6 +11,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
   await db.collection("tripCandidates").createIndex({ tripRequestId: 1 });
   await db.collection("feedback").createIndex({ employeeId: 1 });
   await db.collection("policySuggestions").createIndex({ organizationId: 1 });
+  await db.collection("flightInventory").createIndex({ origin: 1, destination: 1 });
+  await db.collection("hotels").createIndex({ city: 1, fetchedAt: -1 });
 
   // ponytail: Atlas Vector Search index creation requires Atlas Search API / UI.
   // DEMO_MODE uses in-process cosine similarity (src/lib/vector.ts). Upgrade path:

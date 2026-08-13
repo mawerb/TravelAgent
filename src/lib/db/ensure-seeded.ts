@@ -1,10 +1,12 @@
 import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
 import { seedDemoData } from "@/lib/db/seed";
+import { upsertAllDemoOrgs } from "@/lib/db/demo-orgs-seed";
 import { ensureIndexes } from "@/lib/db/indexes";
 import { HOTEL_DETAILS } from "@/lib/hotel-details";
 import { HOTEL_URLS, POLICY_PDF_PATH } from "@/lib/links";
 import { ORG_ACME_ID, POLICY_ACME_ID } from "@/lib/session";
+import { DEMO_ORGS } from "@/lib/demo-orgs";
 import type { Hotel, Organization, TravelPolicy } from "@/types";
 
 declare global {
@@ -33,6 +35,7 @@ async function ensureListingUrls(): Promise<void> {
       },
     },
   );
+  const fetchedAt = new Date().toISOString();
   for (const [id, listingUrl] of Object.entries(HOTEL_URLS)) {
     const details = HOTEL_DETAILS[id];
     await col<Hotel>(db, "hotels").updateOne(
@@ -51,9 +54,16 @@ async function ensureListingUrls(): Promise<void> {
               }
             : {}),
         },
+        $setOnInsert: { fetchedAt },
       },
+      { upsert: false },
     );
   }
+  // Stamp missing fetchedAt so TTL treats seeded Vegas inventory as fresh
+  await col<Hotel>(db, "hotels").updateMany(
+    { fetchedAt: { $exists: false } },
+    { $set: { fetchedAt } },
+  );
 }
 
 /** Idempotent seed for DEMO_MODE cold starts (esp. memory Mongo). */
@@ -61,13 +71,19 @@ export async function ensureDemoSeeded(): Promise<void> {
   if (!global._demoSeedPromise) {
     global._demoSeedPromise = (async () => {
       const db = await getDb();
+      const knownIds = [
+        ORG_ACME_ID,
+        "org_acme",
+        ...DEMO_ORGS.map((o) => o.organization._id),
+      ];
       const org = await col<Organization>(db, "organizations").findOne({
-        _id: ORG_ACME_ID,
+        _id: { $in: knownIds },
       });
       if (!org) {
         await seedDemoData();
       } else {
         await ensureListingUrls();
+        await upsertAllDemoOrgs(db);
       }
     })();
   }

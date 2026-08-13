@@ -8,11 +8,12 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
-    "test": "tsx --test src/lib/policy.test.ts src/lib/geo.test.ts src/lib/ranking.test.ts src/lib/booking.test.ts src/lib/links.test.ts src/lib/llm.test.ts",
+    "test": "tsx --test src/lib/policy.test.ts src/lib/geo.test.ts src/lib/ranking.test.ts src/lib/booking.test.ts src/lib/links.test.ts src/lib/llm.test.ts src/lib/sms/twilio.selfcheck.ts",
     "demo": "tsx --env-file=.env.local scripts/demo-flow.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@duffel/api": "^4.28.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

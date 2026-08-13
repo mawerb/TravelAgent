@@ -1,6 +1,6 @@
 import type { FlightOffer } from "@/types";
-import { googleFlightsUrl } from "@/lib/links";
-import { dollarsToCents } from "@/lib/money";
+import { getDb } from "@/lib/db/client";
+import { getFlightsWithCache } from "@/lib/inventory/cache";
 
 export interface FlightProvider {
   searchFlights(input: {
@@ -13,61 +13,6 @@ export interface FlightProvider {
   cancelFlight(confirmation: string): Promise<void>;
 }
 
-const DEMO_FLIGHTS: Omit<FlightOffer, "url">[] = [
-  {
-    id: "flt_ua_sfo_las",
-    airline: "United",
-    origin: "SFO",
-    destination: "LAS",
-    departTime: "09:10",
-    arriveTime: "10:42",
-    durationMinutes: 92,
-    stops: 0,
-    cabin: "economy",
-    priceCents: dollarsToCents(346),
-    inventory: 8,
-  },
-  {
-    id: "flt_aa_sfo_las",
-    airline: "American",
-    origin: "SFO",
-    destination: "LAS",
-    departTime: "07:45",
-    arriveTime: "09:20",
-    durationMinutes: 95,
-    stops: 0,
-    cabin: "economy",
-    priceCents: dollarsToCents(298),
-    inventory: 5,
-  },
-  {
-    id: "flt_dl_sfo_las",
-    airline: "Delta",
-    origin: "SFO",
-    destination: "LAS",
-    departTime: "11:30",
-    arriveTime: "13:05",
-    durationMinutes: 95,
-    stops: 0,
-    cabin: "economy",
-    priceCents: dollarsToCents(362),
-    inventory: 4,
-  },
-  {
-    id: "flt_ua_sfo_las_pm",
-    airline: "United",
-    origin: "SFO",
-    destination: "LAS",
-    departTime: "16:20",
-    arriveTime: "17:55",
-    durationMinutes: 95,
-    stops: 0,
-    cabin: "economy",
-    priceCents: dollarsToCents(329),
-    inventory: 6,
-  },
-];
-
 export class MockFlightProvider implements FlightProvider {
   async searchFlights(input: {
     origin: string;
@@ -75,19 +20,9 @@ export class MockFlightProvider implements FlightProvider {
     date: string;
     returnDate?: string;
   }): Promise<FlightOffer[]> {
-    return DEMO_FLIGHTS.filter(
-      (f) =>
-        f.origin === input.origin && f.destination === input.destination,
-    ).map((f) => ({
-      ...f,
-      url: googleFlightsUrl({
-        origin: f.origin,
-        destination: f.destination,
-        date: input.date,
-        returnDate: input.returnDate,
-        airline: f.airline,
-      }),
-    }));
+    const db = await getDb();
+    const hit = await getFlightsWithCache(db, input);
+    return hit.items;
   }
 
   async bookFlight(flightId: string): Promise<{ confirmation: string }> {

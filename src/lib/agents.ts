@@ -4,6 +4,7 @@ import type {
   FlightOffer,
   HotelRoom,
   ParsedTripRequest,
+  PolicySuggestion,
   SearchResult,
   TravelPolicy,
   TripCandidate,
@@ -12,24 +13,26 @@ import type {
 } from "@/types";
 import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
-import { findHotelsNear, milesToMeters } from "@/lib/geo";
+import { getFlightsWithCache, getHotelsWithCache } from "@/lib/inventory/cache";
 import { getLlmAdapter } from "@/lib/llm";
 import { dollarsToCents, formatUsd } from "@/lib/money";
-import { VEGAS_DEMO_ALLOWANCE_CENTS, validateItinerary } from "@/lib/policy";
-import { getFlightProvider } from "@/lib/providers/flights";
+import {
+  normalizeCityKey,
+  VEGAS_DEMO_ALLOWANCE_CENTS,
+  validateItinerary,
+} from "@/lib/policy";
 import { computeScores } from "@/lib/ranking";
 import {
   CANDIDATE_VEGAS_HERO,
-  EMP_ALEX_ID,
-  ORG_ACME_ID,
-  POLICY_ACME_ID,
+  getDemoSession,
   VENUE_MDB_LOCAL_VEGAS,
 } from "@/lib/session";
 import {
   buildItineraryEmbedding,
   preferenceSimilarity,
 } from "@/lib/vector";
-import { hotelListingUrl, hotelRatesUrl } from "@/lib/links";
+import { compareBookingSites } from "@/lib/booking-sites";
+import { hotelListingUrl, hotelRatesUrl, withFlightUrl } from "@/lib/links";
 import { HOTEL_DETAILS } from "@/lib/hotel-details";
 import {
   hasUserSearchOverrides,
@@ -113,9 +116,9 @@ export async function PolicyAgent(organizationId: string): Promise<TravelPolicy>
   return policy;
 }
 
-export async function FlightSearchAgent(parsed: ParsedTripRequest): Promise<FlightOffer[]> {
-  const provider = getFlightProvider();
-  return provider.searchFlights({
+export async function FlightSearchAgent(parsed: ParsedTripRequest) {
+  const db = await getDb();
+  return getFlightsWithCache(db, {
     origin: parsed.originAirport,
     destination: parsed.destinationAirport,
     date: parsed.startDate,
@@ -129,17 +132,11 @@ export async function HotelSearchAgent(input: {
   maxMiles: number;
 }) {
   const db = await getDb();
-  if (input.venue) {
-    return findHotelsNear(db, {
-      coordinates: input.venue.location.coordinates,
-      maxDistanceMeters: milesToMeters(Math.max(input.maxMiles, 5)),
-      limit: 50,
-    });
-  }
-  return col<{ _id: string; city: string }>(db, "hotels")
-    .find({ city: input.city })
-    .limit(50)
-    .toArray();
+  return getHotelsWithCache(db, {
+    city: input.city,
+    venueCoordinates: input.venue?.location.coordinates,
+    maxMiles: Math.max(input.maxMiles, 5),
+  });
 }
 
 export async function GeoAgent(hotels: Array<{ distanceMiles?: number }>) {
@@ -366,16 +363,42 @@ function buildFilteredCandidates(input: {
       }
 
       const enriched = enrichHotel(hotel, input.parsed.startDate, input.parsed.endDate);
+      const bookingCompare = compareBookingSites({
+        origin: flight.origin,
+        destination: flight.destination,
+        date: input.parsed.startDate,
+        returnDate: input.parsed.endDate,
+        airline: flight.airline,
+        flightCents,
+        hotelName: enriched.name,
+        hotelCity: enriched.city,
+        checkIn: input.parsed.startDate,
+        checkOut: input.parsed.endDate,
+        hotelCents,
+        hotelBrandUrl: enriched.url,
+      });
+      const flightWithUrl = withFlightUrl(
+        flight,
+        input.parsed.startDate,
+        input.parsed.endDate,
+      );
+      // Prefer cheapest shareable OTA link as the primary flight/hotel URL
+      if (bookingCompare.cheapestFlight) {
+        flightWithUrl.url = bookingCompare.cheapestFlight.url;
+      }
+      if (bookingCompare.cheapestHotel) {
+        enriched.url = bookingCompare.cheapestHotel.url;
+      }
 
       candidates.push({
         _id: isHero
-          ? CANDIDATE_VEGAS_HERO
-          : `cand_${flight.id}_${hotel._id}`,
+          ? `${CANDIDATE_VEGAS_HERO}_${input.profile.organizationId}`
+          : `cand_${flight.id}_${hotel._id}_${input.profile.organizationId}`,
         tripRequestId: input.tripRequestId,
-        organizationId: ORG_ACME_ID,
+        organizationId: input.profile.organizationId,
         employeeId: input.profile.employeeId,
         label: "alternative",
-        flight,
+        flight: flightWithUrl,
         hotel: enriched,
         nights,
         startDate: input.parsed.startDate,
@@ -391,6 +414,7 @@ function buildFilteredCandidates(input: {
         whyThisTrip: "",
         embedding,
         createdAt: new Date().toISOString(),
+        bookingCompare,
       });
     }
   }
@@ -510,7 +534,10 @@ export async function OptimizationAgent(input: {
 
   const recommended =
     (!userOverrides &&
-      candidates.find((c) => c._id === CANDIDATE_VEGAS_HERO)) ||
+      candidates.find(
+        (c) =>
+          c._id === `${CANDIDATE_VEGAS_HERO}_${input.profile.organizationId}`,
+      )) ||
     preferred;
   recommended.label = "recommended";
 
@@ -609,20 +636,23 @@ export async function runTravelSearch(
     },
   ];
 
+  const session = await getDemoSession();
   const parsed =
     parsedOverride ?? (await TripRequestParser(query));
   steps[0]!.detail = `${formatRouteLabel(parsed)} · ${parsed.startDate}–${parsed.endDate}`;
   steps[0]!.status = "done";
 
-  const policy = await PolicyAgent(ORG_ACME_ID);
-  steps[1]!.detail = `Economy fare required · Hotel maximum: $${(policy.rules.hotels.cityCapsCents["las vegas"] ?? policy.rules.hotels.standardMaxCents) / 100}/night · Conference radius: ${policy.rules.hotels.conferenceRadiusMiles} mile`;
+  const policy = await PolicyAgent(session.organization._id);
+  const cityKey = parsed.destinationCity.toLowerCase();
+  const hotelCap =
+    policy.rules.hotels.cityCapsCents[cityKey] ??
+    policy.rules.hotels.standardMaxCents;
+  steps[1]!.detail = `${session.organization.name} policy · Hotel max $${hotelCap / 100}/night · Conference radius: ${policy.rules.hotels.conferenceRadiusMiles} mi`;
   steps[1]!.status = "done";
 
-  const flights = await FlightSearchAgent(parsed);
-  // Demo narrative: 24 combinations
-  steps[2]!.detail = process.env.DEMO_MODE === "true" && parsed.destinationAirport === "LAS"
-    ? "24 flight combinations found"
-    : `${flights.length} flights found`;
+  const flightHit = await FlightSearchAgent(parsed);
+  const flights = flightHit.items;
+  steps[2]!.detail = flightHit.detail;
   steps[2]!.status = "done";
 
   const isVegasTrip =
@@ -634,16 +664,14 @@ export async function runTravelSearch(
         _id: VENUE_MDB_LOCAL_VEGAS,
       })
     : null;
-  const hotels = await HotelSearchAgent({
+  const hotelHit = await HotelSearchAgent({
     city: parsed.destinationCity,
     venue,
     maxMiles: policy.rules.hotels.conferenceRadiusMiles,
   });
+  const hotels = hotelHit.items;
   const geo = await GeoAgent(hotels as Array<{ distanceMiles?: number }>);
-  steps[3]!.detail =
-    process.env.DEMO_MODE === "true" && parsed.destinationAirport === "LAS"
-      ? "46 hotels found · 12 within company radius"
-      : `${geo.total} hotels found · ${geo.withinRadius} within company radius`;
+  steps[3]!.detail = `${hotelHit.detail} · ${geo.withinRadius} within company radius`;
   steps[3]!.status = "done";
 
   if (flights.length === 0 || hotels.length === 0) {
@@ -656,15 +684,15 @@ export async function runTravelSearch(
     );
   }
 
-  const profile = await PreferenceAgent(EMP_ALEX_ID);
+  const profile = await PreferenceAgent(session.employee._id);
   steps[4]!.detail = `${profile.preferredAirlines[0]} preferred · ${profile.seat[0]!.toUpperCase()}${profile.seat.slice(1)} seat preferred · ${profile.preferredHotelBrands[0]} historically rated highly`;
   steps[4]!.status = "done";
 
   const tripRequestId = `tr_${Date.now()}`;
   const request: TripRequest = {
     _id: tripRequestId,
-    organizationId: ORG_ACME_ID,
-    employeeId: EMP_ALEX_ID,
+    organizationId: session.organization._id,
+    employeeId: session.employee._id,
     query,
     parsed,
     venueId: venue?._id,
@@ -706,6 +734,11 @@ export async function runTravelSearch(
     flights,
     hotels: hotelsTyped,
   });
+  const compareSample =
+    all.find((c) => c.label === "recommended") ?? all[0];
+  steps[5]!.detail = compareSample?.bookingCompare
+    ? `Compared ${compareSample.bookingCompare.sitesCompared} booking sites · cheapest flight ${compareSample.bookingCompare.cheapestFlight?.siteName ?? "—"} · cheapest hotel ${compareSample.bookingCompare.cheapestHotel?.siteName ?? "—"}`
+    : "Balancing policy, proximity, preference, and price";
   steps[5]!.status = "done";
   if (preferenceNote) {
     steps[4]!.detail = preferenceNote;
@@ -735,8 +768,6 @@ export async function runTravelSearch(
   });
   await col<TripCandidate>(db, "tripCandidates").insertMany(toStore);
 
-  void POLICY_ACME_ID;
-
   return {
     tripRequestId,
     steps,
@@ -748,36 +779,139 @@ export async function runTravelSearch(
 
 export async function FeedbackAgent(input: {
   employeeId: string;
+  organizationId: string;
+  feedbackId: string;
   hotelBrand: string;
   hotelStars: number;
+  flightStars: number;
+  policyMadeHarder: boolean;
+  frictionNote?: string;
+  destinationCity: string;
+  nightlyRateCents?: number;
+}) {
+  const db = await getDb();
+  const prefs: string[] = [];
+  if (input.hotelStars >= 4) {
+    prefs.push(`Likes ${input.hotelBrand} lodging`);
+  } else if (input.hotelStars <= 2) {
+    prefs.push(`Avoid ${input.hotelBrand} when possible`);
+  }
+  if (input.flightStars >= 4) {
+    prefs.push("Values strong flight experience");
+  }
+  if (input.policyMadeHarder) {
+    prefs.push(`Policy friction in ${input.destinationCity}`);
+  }
+  if (input.frictionNote?.trim()) {
+    prefs.push(input.frictionNote.trim().slice(0, 120));
+  }
+
+  const profileUpdate: Record<string, unknown> = {
+    $inc: { feedbackCount: 1 },
+  };
+  if (input.hotelStars >= 4) {
+    profileUpdate.$addToSet = {
+      preferredHotelBrands: input.hotelBrand,
+      ...(prefs.length
+        ? { inferredPreferences: { $each: prefs } }
+        : {}),
+    };
+  } else if (prefs.length) {
+    profileUpdate.$addToSet = {
+      inferredPreferences: { $each: prefs },
+    };
+  }
+
+  await col<EmployeeProfile>(db, "employeeProfiles").updateOne(
+    { employeeId: input.employeeId },
+    profileUpdate,
+  );
+
+  if (input.policyMadeHarder || input.frictionNote?.trim()) {
+    await upsertPolicySuggestionFromFeedback(input);
+  }
+
+  return { ok: true as const };
+}
+
+async function upsertPolicySuggestionFromFeedback(input: {
+  organizationId: string;
+  feedbackId: string;
+  destinationCity: string;
+  frictionNote?: string;
+  nightlyRateCents?: number;
   policyMadeHarder: boolean;
 }) {
   const db = await getDb();
-  if (input.hotelStars >= 4) {
-    await col<EmployeeProfile>(db, "employeeProfiles").updateOne(
-      { employeeId: input.employeeId },
-      {
-        $inc: { feedbackCount: 1 },
-        $addToSet: {
-          preferredHotelBrands: input.hotelBrand,
-        },
-      },
-    );
-  } else {
-    await col<EmployeeProfile>(db, "employeeProfiles").updateOne(
-      { employeeId: input.employeeId },
-      { $inc: { feedbackCount: 1 } },
-    );
+  const policy = await col<TravelPolicy>(db, "travelPolicies").findOne({
+    organizationId: input.organizationId,
+    status: "active",
+  });
+  if (!policy) return;
+
+  const cityKey = normalizeCityKey(input.destinationCity);
+  const currentCap =
+    policy.rules.hotels.cityCapsCents[cityKey] ??
+    policy.rules.hotels.standardMaxCents;
+  const observed =
+    input.nightlyRateCents && input.nightlyRateCents > 0
+      ? input.nightlyRateCents
+      : Math.round(currentCap * 1.15);
+  const proposedCap = Math.max(observed, Math.round(currentCap * 1.1));
+  const cityLabel = input.destinationCity.split(",")[0]!.trim();
+  const id = `sug_fb_${input.organizationId}_${cityKey.replace(/\s+/g, "_")}`;
+  const now = new Date().toISOString();
+
+  const existing = await col<PolicySuggestion>(db, "policySuggestions").findOne({
+    _id: id,
+  });
+  if (existing?.status === "applied" || existing?.status === "dismissed") {
+    // New cycle after manager closed prior suggestion
   }
-  return { ok: true as const };
+
+  const suggestion: PolicySuggestion = {
+    _id: id,
+    organizationId: input.organizationId,
+    title: "Traveler feedback flagged policy friction",
+    topic: `${cityLabel} lodging / trip policy`,
+    currentPolicy: `${formatUsd(currentCap)}/night cap · radius ${policy.rules.hotels.conferenceRadiusMiles} mi`,
+    tripsAnalyzed: (existing?.tripsAnalyzed ?? 0) + 1,
+    exceptionRequests: (existing?.exceptionRequests ?? 0) + 1,
+    employeesMentioned: (existing?.employeesMentioned ?? 0) + 1,
+    medianApprovedHotelCents: proposedCap,
+    recommendation:
+      input.frictionNote?.trim() ||
+      `Consider raising the ${cityLabel} hotel allowance toward ${formatUsd(proposedCap)}/night based on post-trip feedback.`,
+    predictedImpact: [
+      "Fewer out-of-policy booking requests",
+      "Managers spend less time on lodging exceptions",
+      `Higher lodging spend (~${formatUsd(proposedCap - currentCap)}/night)`,
+    ],
+    status: "open",
+    proposedChanges: {
+      cityCapsCents: { [cityKey]: proposedCap },
+      standardMaxCents:
+        cityKey && policy.rules.hotels.cityCapsCents[cityKey]
+          ? undefined
+          : proposedCap,
+    },
+    sourceFeedbackIds: Array.from(
+      new Set([...(existing?.sourceFeedbackIds ?? []), input.feedbackId]),
+    ),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+
+  await col<PolicySuggestion>(db, "policySuggestions").updateOne(
+    { _id: id },
+    { $set: suggestion },
+    { upsert: true },
+  );
 }
 
 export async function PolicyInsightAgent(organizationId: string) {
   const db = await getDb();
-  return col<{ _id: string; organizationId: string; status: string }>(
-    db,
-    "policySuggestions",
-  )
+  return col<PolicySuggestion>(db, "policySuggestions")
     .find({ organizationId, status: "open" })
     .toArray();
 }
