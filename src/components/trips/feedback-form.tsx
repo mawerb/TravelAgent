@@ -21,14 +21,17 @@ export function FeedbackForm({
 
   if (done) {
     return (
-      <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 ring-1 ring-emerald-200">
-        Thanks — your feedback updates Alex&apos;s travel profile.
+      <p className="rounded-2xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-200 ring-1 ring-emerald-400/25">
+        Thanks — your feedback updates your travel profile
+        {policyHarder
+          ? " and may create a policy suggestion for your manager."
+          : "."}
       </p>
     );
   }
 
   return (
-    <div className="space-y-4 rounded-3xl border border-border bg-white p-5">
+    <div className="space-y-4 rounded-3xl border border-border bg-card p-5">
       <h3 className="text-lg font-semibold">How was your trip?</h3>
       <StarRow label="Flight" value={flightStars} onChange={setFlightStars} />
       <StarRow label="Hotel" value={hotelStars} onChange={setHotelStars} />
@@ -107,8 +110,8 @@ function StarRow({
             onClick={() => onChange(n)}
             className={`size-8 rounded-lg text-sm font-medium ring-1 ${
               n <= value
-                ? "bg-amber-50 text-amber-800 ring-amber-200"
-                : "bg-stone-50 text-stone-400 ring-stone-200"
+                ? "bg-amber-500/10 text-amber-200 ring-amber-400/25"
+                : "bg-muted text-zinc-500 ring-white/10"
             }`}
           >
             {n}

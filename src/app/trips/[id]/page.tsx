@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FeedbackForm } from "@/components/trips/feedback-form";
+import { RequestFeedbackSmsButton } from "@/components/trips/request-feedback-sms-button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ExternalLink } from "@/components/ui/external-link";
 import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
@@ -21,21 +22,17 @@ export default async function TripDetailPage({
   const booking = await getBooking(id);
   if (!booking) notFound();
 
-  const today = new Date().toISOString().slice(0, 10);
-  const isPast = booking.endDate < today;
   const hotelId = hotelIdFromName(booking.hotel.name);
-  const flightHref =
-    booking.flight.url ??
-    googleFlightsUrl({
-      origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
-      destination:
-        booking.flight.destination !== "YYY"
-          ? booking.flight.destination
-          : "LAS",
-      date: booking.startDate,
-      returnDate: booking.endDate,
-      airline: booking.flight.airline,
-    });
+  const flightHref = googleFlightsUrl({
+    origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
+    destination:
+      booking.flight.destination !== "YYY"
+        ? booking.flight.destination
+        : "LAS",
+    date: booking.startDate,
+    returnDate: booking.endDate,
+    airline: booking.flight.airline,
+  });
   const listingHref =
     booking.hotel.listingUrl ??
     hotelListingUrl({
@@ -89,12 +86,12 @@ export default async function TripDetailPage({
         <TimelineItem
           title="Outbound flight"
           detail={`${booking.flight.airline} · ${booking.flight.departTime}–${booking.flight.arriveTime} · Confirmation ${booking.flight.confirmation ?? "—"}`}
-          link={{ href: flightHref, label: "View on Google Flights" }}
+          link={{ href: flightHref, label: "View flights for these dates" }}
         />
         <TimelineItem
           title="Hotel check-in"
           detail={`${booking.hotel.name} · ${formatMiles(booking.hotel.distanceMiles)} from venue · Confirmation ${booking.hotel.confirmation ?? "—"}`}
-          link={{ href: listingHref, label: "View property page" }}
+          link={{ href: ratesHref, label: "Check rates for these dates" }}
         />
         {roomLine ? (
           <TimelineItem title="Room" detail={roomLine} />
@@ -108,7 +105,7 @@ export default async function TripDetailPage({
         <TimelineItem
           title="Stay"
           detail={`${booking.startDate} → ${booking.endDate}`}
-          link={{ href: ratesHref, label: "Check rates for these dates" }}
+          link={{ href: listingHref, label: "View property page" }}
         />
         <TimelineItem
           title="Return"
@@ -120,12 +117,25 @@ export default async function TripDetailPage({
         />
       </ol>
 
-      {isPast ? (
-        <FeedbackForm
-          bookingId={booking._id}
-          hotelBrand={booking.hotel.brand}
-        />
-      ) : null}
+      <section className="space-y-4 rounded-3xl border border-border bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-semibold">Post-trip feedback</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Demo: tap the button to SMS a feedback link (Twilio). Answers
+              update traveler context and may open a policy suggestion for the
+              manager.
+            </p>
+          </div>
+          <RequestFeedbackSmsButton bookingId={booking._id} />
+        </div>
+        <div id="feedback">
+          <FeedbackForm
+            bookingId={booking._id}
+            hotelBrand={booking.hotel.brand}
+          />
+        </div>
+      </section>
     </div>
   );
 }
@@ -141,7 +151,7 @@ function TimelineItem({
 }) {
   return (
     <li className="relative">
-      <span className="absolute -left-[1.9rem] top-1 size-3 rounded-full bg-stone-900 ring-4 ring-[var(--canvas)]" />
+      <span className="absolute -left-[1.9rem] top-1 size-3 rounded-full bg-sky-400 ring-4 ring-[var(--canvas)]" />
       <p className="font-medium">{title}</p>
       <p className="text-sm text-muted-foreground">{detail}</p>
       {link ? (
