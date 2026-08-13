@@ -1,0 +1,164 @@
+export const dynamic = "force-dynamic";
+
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { FeedbackForm } from "@/components/trips/feedback-form";
+import { RequestFeedbackSmsButton } from "@/components/trips/request-feedback-sms-button";
+import { StatusPill } from "@/components/ui/status-pill";
+import { ExternalLink } from "@/components/ui/external-link";
+import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
+import { getBooking } from "@/lib/data/bookings";
+import { formatUsd } from "@/lib/money";
+import { formatMiles } from "@/lib/geo";
+import { googleFlightsUrl, hotelListingUrl, hotelRatesUrl, hotelIdFromName } from "@/lib/links";
+
+export default async function TripDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  await ensureDemoSeeded();
+  const { id } = await params;
+  const booking = await getBooking(id);
+  if (!booking) notFound();
+
+  const hotelId = hotelIdFromName(booking.hotel.name);
+  const flightHref = googleFlightsUrl({
+    origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
+    destination:
+      booking.flight.destination !== "YYY"
+        ? booking.flight.destination
+        : "LAS",
+    date: booking.startDate,
+    returnDate: booking.endDate,
+    airline: booking.flight.airline,
+  });
+  const listingHref =
+    booking.hotel.listingUrl ??
+    hotelListingUrl({
+      hotelId,
+      name: booking.hotel.name,
+      city: booking.destinationCity,
+    });
+  const ratesHref = hotelRatesUrl({
+    hotelId,
+    name: booking.hotel.name,
+    city: booking.destinationCity,
+    checkIn: booking.startDate,
+    checkOut: booking.endDate,
+  });
+
+  const roomLine = [
+    booking.hotel.roomName,
+    booking.hotel.bedType,
+    booking.hotel.address,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <Link
+          href="/trips"
+          className="text-sm text-muted-foreground hover:underline"
+        >
+          ← Trips
+        </Link>
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">
+              {booking.originCity} → {booking.destinationCity}
+            </h1>
+            <p className="text-muted-foreground">{booking.purpose}</p>
+          </div>
+          <StatusPill
+            tone={
+              booking.policyStatus === "compliant" ? "compliant" : "exception"
+            }
+          >
+            {booking.policyStatus === "compliant" ? "In policy" : "Exception"}
+          </StatusPill>
+        </div>
+      </div>
+
+      <ol className="relative space-y-4 border-l border-border pl-6">
+        <TimelineItem
+          title="Outbound flight"
+          detail={`${booking.flight.airline} · ${booking.flight.departTime}–${booking.flight.arriveTime} · Confirmation ${booking.flight.confirmation ?? "—"}`}
+          link={{ href: flightHref, label: "View flights for these dates" }}
+        />
+        <TimelineItem
+          title="Hotel check-in"
+          detail={`${booking.hotel.name} · ${formatMiles(booking.hotel.distanceMiles)} from venue · Confirmation ${booking.hotel.confirmation ?? "—"}`}
+          link={{ href: ratesHref, label: "Check rates for these dates" }}
+        />
+        {roomLine ? (
+          <TimelineItem title="Room" detail={roomLine} />
+        ) : null}
+        {booking.hotel.amenities?.length ? (
+          <TimelineItem
+            title="Amenities"
+            detail={booking.hotel.amenities.join(" · ")}
+          />
+        ) : null}
+        <TimelineItem
+          title="Stay"
+          detail={`${booking.startDate} → ${booking.endDate}`}
+          link={{ href: listingHref, label: "View property page" }}
+        />
+        <TimelineItem
+          title="Return"
+          detail={`Home via ${booking.flight.airline}`}
+        />
+        <TimelineItem
+          title="Total charged"
+          detail={`${formatUsd(booking.totalCents)} · Acme Corporate Travel ·••• ${booking.paymentLast4}`}
+        />
+      </ol>
+
+      <section className="space-y-4 rounded-3xl border border-border bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-semibold">Post-trip feedback</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Demo: tap the button to SMS a feedback link (Twilio). Answers
+              update traveler context and may open a policy suggestion for the
+              manager.
+            </p>
+          </div>
+          <RequestFeedbackSmsButton bookingId={booking._id} />
+        </div>
+        <div id="feedback">
+          <FeedbackForm
+            bookingId={booking._id}
+            hotelBrand={booking.hotel.brand}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function TimelineItem({
+  title,
+  detail,
+  link,
+}: {
+  title: string;
+  detail: string;
+  link?: { href: string; label: string };
+}) {
+  return (
+    <li className="relative">
+      <span className="absolute -left-[1.9rem] top-1 size-3 rounded-full bg-sky-400 ring-4 ring-[var(--canvas)]" />
+      <p className="font-medium">{title}</p>
+      <p className="text-sm text-muted-foreground">{detail}</p>
+      {link ? (
+        <p className="mt-1">
+          <ExternalLink href={link.href}>{link.label}</ExternalLink>
+        </p>
+      ) : null}
+    </li>
+  );
+}
