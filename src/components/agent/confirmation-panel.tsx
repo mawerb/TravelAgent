@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ParsedTripRequest, TripConfirmation } from "@/types";
+import { reviseTripAction } from "@/app/actions/clarify";
 import { buildTripConfirmation } from "@/lib/clarify";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,16 +16,36 @@ export function ConfirmationPanel({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ParsedTripRequest>(confirmation.parsed);
+  const [prompt, setPrompt] = useState("");
+  const [reply, setReply] = useState<string | null>(null);
+  const [revising, setRevising] = useState(false);
 
   useEffect(() => {
     setDraft(confirmation.parsed);
     setEditing(false);
+    setPrompt("");
+    setReply(null);
   }, [confirmation]);
 
   const live = buildTripConfirmation(draft);
 
   function patch(partial: Partial<ParsedTripRequest>) {
     setDraft((prev) => ({ ...prev, ...partial }));
+  }
+
+  async function sendRevision() {
+    const message = prompt.trim();
+    if (!message || revising) return;
+    setRevising(true);
+    const res = await reviseTripAction(draft, message);
+    setRevising(false);
+    if (!res.ok) {
+      setReply(res.error);
+      return;
+    }
+    setDraft(res.data.parsed);
+    setReply(res.data.reply);
+    setPrompt("");
   }
 
   return (
@@ -134,6 +155,39 @@ export function ConfirmationPanel({
         </ul>
       )}
 
+      <div className="space-y-2 rounded-2xl border border-border/80 bg-stone-50/60 p-3">
+        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          Tell the agent what to change
+        </p>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void sendRevision();
+            }
+          }}
+          rows={2}
+          placeholder='e.g. "Prefer Delta" or "Change dates to Sep 23–26"'
+          className="w-full resize-none rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-stone-300"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={revising || !prompt.trim()}
+            onClick={() => void sendRevision()}
+          >
+            {revising ? "Updating…" : "Update details"}
+          </Button>
+          {reply ? (
+            <p className="text-sm text-emerald-800">{reply}</p>
+          ) : null}
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-2 pt-1">
         <Button type="button" onClick={() => onConfirm(draft)}>
           {editing ? "Search with these details" : "Yes — find trips"}
@@ -143,15 +197,14 @@ export function ConfirmationPanel({
             type="button"
             variant="outline"
             onClick={() => {
-              setDraft(confirmation.parsed);
               setEditing(false);
             }}
           >
-            Cancel edits
+            Done editing fields
           </Button>
         ) : (
           <Button type="button" variant="outline" onClick={() => setEditing(true)}>
-            Let me revise
+            Edit fields
           </Button>
         )}
       </div>

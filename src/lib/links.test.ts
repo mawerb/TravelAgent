@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { hotelUrl, googleFlightsUrl } from "./links";
-import { buildTripConfirmation } from "./clarify";
+import { buildTripConfirmation, reviseParsedTrip } from "./clarify";
 
 describe("links", () => {
   it("embeds hotel check-in and check-out on Hilton deep link", () => {
@@ -55,5 +55,28 @@ describe("clarify", () => {
     assert.equal(questions.length, 4);
     assert.match(questions[0]!.answer, /Sep/);
     assert.match(questions[0]!.answer, /22/);
+  });
+
+  it("revises airline and dates from a natural-language prompt", () => {
+    const base = {
+      originAirport: "SFO",
+      destinationCity: "Las Vegas",
+      destinationAirport: "LAS",
+      startDate: "2026-09-22",
+      endDate: "2026-09-25",
+      purpose: "MongoDB.local",
+      venueName: "MongoDB.local",
+      preferredAirline: "United",
+      proximityPreferred: true,
+      rawQuery: "demo",
+    };
+    const { parsed, changed } = reviseParsedTrip(
+      base,
+      "Prefer Delta and change dates to Sep 23-26",
+    );
+    assert.equal(changed, true);
+    assert.equal(parsed.preferredAirline, "Delta");
+    assert.equal(parsed.startDate, "2026-09-23");
+    assert.equal(parsed.endDate, "2026-09-26");
   });
 });
