@@ -262,6 +262,11 @@ export async function OptimizationAgent(input: {
 
   // Force demo alternative numbers when present
   if (isVegasDemo) {
+    for (const c of candidates) {
+      if (c.label === "lowest_cost" || c.label === "best_location") {
+        c.label = "alternative";
+      }
+    }
     const aaHyatt = candidates.find(
       (c) =>
         c.flight.id === "flt_aa_sfo_las" && c.hotel._id === "hotel_hyatt_vegas",
@@ -411,12 +416,18 @@ export async function runTravelSearch(query: string): Promise<SearchResult> {
   });
   steps[5]!.status = "done";
 
+  if (all.length === 0) {
+    throw new Error(
+      `No trip candidates for ${parsed.originAirport}→${parsed.destinationAirport} (${hotelsTyped.length} hotels, ${flights.length} flights).`,
+    );
+  }
+
   const recommended =
     all.find((c) => c.label === "recommended") ?? all[0]!;
   const alternatives = [
     all.find((c) => c.label === "lowest_cost"),
     all.find((c) => c.label === "best_location"),
-  ].filter(Boolean) as TripCandidate[];
+  ].filter((c): c is TripCandidate => Boolean(c));
 
   // Persist candidates used for booking reload
   const toStore = [recommended, ...alternatives];

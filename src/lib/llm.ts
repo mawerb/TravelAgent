@@ -128,6 +128,10 @@ export class OpenAiCompatibleAdapter implements LlmAdapter {
 }
 
 export function getLlmAdapter(): LlmAdapter {
+  // DEMO_MODE keeps the live script deterministic — never depend on model output for airport codes.
+  if (process.env.DEMO_MODE === "true") {
+    return new DemoLlmAdapter();
+  }
   const key = process.env.OPENAI_API_KEY;
   const base = process.env.OPENAI_BASE_URL;
   if (key && base) return new OpenAiCompatibleAdapter(base, key);
