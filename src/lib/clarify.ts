@@ -78,6 +78,84 @@ function budgetLine(parsed: ParsedTripRequest): string | null {
   return parts.length ? parts.join("; ") : null;
 }
 
+export function describePreferenceCaps(parsed: ParsedTripRequest): string[] {
+  const hints: string[] = [];
+  if (parsed.preferredCabin) {
+    hints.push(`${parsed.preferredCabin.replace("_", " ")} cabin`);
+  }
+  if (parsed.maxFlightCents != null) {
+    hints.push(`flight ≤ ${formatUsd(parsed.maxFlightCents)}`);
+  }
+  if (parsed.maxHotelNightlyCents != null) {
+    hints.push(`hotel ≤ ${formatUsd(parsed.maxHotelNightlyCents)}/night`);
+  }
+  if (parsed.maxTotalCents != null) {
+    hints.push(`total ≤ ${formatUsd(parsed.maxTotalCents)}`);
+  }
+  return hints;
+}
+
+/** Human-readable why search produced zero bookable itineraries. */
+export function explainEmptySearch(input: {
+  parsed: ParsedTripRequest;
+  flightCount: number;
+  hotelCount: number;
+}): string {
+  const { parsed, flightCount, hotelCount } = input;
+  const reasons: string[] = [];
+  const origin = isUnknownAirport(parsed.originAirport)
+    ? null
+    : parsed.originAirport.toUpperCase();
+  const dest = isUnknownAirport(parsed.destinationAirport)
+    ? null
+    : parsed.destinationAirport.toUpperCase();
+  const city = isUnknownCity(parsed.destinationCity)
+    ? null
+    : parsed.destinationCity;
+
+  if (!origin) {
+    reasons.push("no outbound (origin) airport was set");
+  }
+  if (!dest && !city) {
+    reasons.push("no destination airport or city was set");
+  }
+  if (flightCount === 0 && origin && dest) {
+    reasons.push(
+      `no flights in inventory for ${origin}→${dest} on ${parsed.startDate} (demo coverage is mainly SFO→LAS)`,
+    );
+  } else if (flightCount === 0 && origin) {
+    reasons.push(
+      `no flights found from ${origin}${dest ? ` to ${dest}` : ""}`,
+    );
+  } else if (flightCount === 0) {
+    reasons.push("no matching flights were found");
+  }
+  if (hotelCount === 0) {
+    reasons.push(
+      city
+        ? `no hotels in inventory for ${city} (demo hotels are seeded for Las Vegas)`
+        : "no hotels matched this destination",
+    );
+  }
+
+  const caps = describePreferenceCaps(parsed);
+  if (caps.length && flightCount > 0 && hotelCount > 0) {
+    reasons.push(
+      `preference filters removed every combination (${caps.join("; ")})`,
+    );
+  } else if (flightCount > 0 && hotelCount > 0) {
+    reasons.push("flight×hotel combinations were empty after filtering");
+  }
+
+  const route = formatRouteLabel(parsed);
+  const why =
+    reasons.length > 0
+      ? reasons.map((r, i) => `${i + 1}. ${r}`).join(" ")
+      : "no matching inventory for this request";
+
+  return `Couldn't build a trip for ${route} (${parsed.startDate}→${parsed.endDate}). Why: ${why}`;
+}
+
 export function buildFollowUps(parsed: ParsedTripRequest): ClarifyingQuestion[] {
   const followUps: ClarifyingQuestion[] = [];
   if (isUnknownAirport(parsed.originAirport)) {

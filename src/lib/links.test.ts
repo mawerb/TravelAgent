@@ -1,7 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { hotelUrl, hotelListingUrl, googleFlightsUrl } from "./links";
-import { buildTripConfirmation, reviseParsedTrip } from "./clarify";
+import {
+  buildTripConfirmation,
+  reviseParsedTrip,
+  explainEmptySearch,
+} from "./clarify";
 
 describe("links", () => {
   it("embeds hotel check-in and check-out on Hilton rates deep link", () => {
@@ -129,5 +133,26 @@ describe("clarify", () => {
     assert.equal(changed, true);
     assert.equal(parsed.maxFlightCents, 32000);
     assert.equal(parsed.maxHotelNightlyCents, 22000);
+  });
+
+  it("explains missing inventory for non-demo routes", () => {
+    const msg = explainEmptySearch({
+      parsed: {
+        originAirport: "SFO",
+        destinationCity: "Seattle",
+        destinationAirport: "SEA",
+        startDate: "2026-09-08",
+        endDate: "2026-09-10",
+        purpose: "Seattle trip",
+        proximityPreferred: true,
+        rawQuery: "seattle",
+      },
+      flightCount: 0,
+      hotelCount: 0,
+    });
+    assert.match(msg, /SFO/);
+    assert.match(msg, /no flights/i);
+    assert.match(msg, /no hotels/i);
+    assert.match(msg, /Las Vegas|demo/i);
   });
 });

@@ -31,7 +31,12 @@ import {
 } from "@/lib/vector";
 import { hotelListingUrl, hotelRatesUrl } from "@/lib/links";
 import { HOTEL_DETAILS } from "@/lib/hotel-details";
-import { hasUserSearchOverrides, formatRouteLabel } from "@/lib/clarify";
+import {
+  hasUserSearchOverrides,
+  formatRouteLabel,
+  explainEmptySearch,
+  describePreferenceCaps,
+} from "@/lib/clarify";
 
 function enrichHotel(
   hotel: {
@@ -394,23 +399,6 @@ function buildFilteredCandidates(input: {
   return candidates;
 }
 
-function describeCap(parsed: ParsedTripRequest): string[] {
-  const hints: string[] = [];
-  if (parsed.preferredCabin) {
-    hints.push(`${parsed.preferredCabin.replace("_", " ")} cabin`);
-  }
-  if (parsed.maxFlightCents != null) {
-    hints.push(`flight ≤ ${formatUsd(parsed.maxFlightCents)}`);
-  }
-  if (parsed.maxHotelNightlyCents != null) {
-    hints.push(`hotel ≤ ${formatUsd(parsed.maxHotelNightlyCents)}/night`);
-  }
-  if (parsed.maxTotalCents != null) {
-    hints.push(`total ≤ ${formatUsd(parsed.maxTotalCents)}`);
-  }
-  return hints;
-}
-
 function relaxParsed(
   parsed: ParsedTripRequest,
   drop: "preferredCabin" | "maxFlightCents" | "maxHotelNightlyCents" | "maxTotalCents",
@@ -449,7 +437,7 @@ export async function OptimizationAgent(input: {
   let candidates = buildFilteredCandidates({ ...input, parsed: filterParsed });
   let preferenceNote: string | undefined;
 
-  if (candidates.length === 0 && describeCap(input.parsed).length > 0) {
+  if (candidates.length === 0 && describePreferenceCaps(input.parsed).length > 0) {
     const order = [
       "preferredCabin",
       "maxFlightCents",
@@ -459,11 +447,13 @@ export async function OptimizationAgent(input: {
     for (const key of order) {
       if (input.parsed[key] == null && filterParsed[key] == null) continue;
       if (filterParsed[key] == null) continue;
-      const before = describeCap(filterParsed);
+      const before = describePreferenceCaps(filterParsed);
       filterParsed = relaxParsed(filterParsed, key);
       candidates = buildFilteredCandidates({ ...input, parsed: filterParsed });
       if (candidates.length > 0) {
-        const dropped = before.find((h) => !describeCap(filterParsed).includes(h));
+        const dropped = before.find(
+          (h) => !describePreferenceCaps(filterParsed).includes(h),
+        );
         preferenceNote = dropped
           ? `No trips matched your ${dropped} preference. Showing results with that limit relaxed.`
           : "No trips matched your hard preferences. Showing the closest options with looser filters.";
@@ -472,7 +462,7 @@ export async function OptimizationAgent(input: {
     }
   }
 
-  if (candidates.length === 0 && describeCap(input.parsed).length > 0) {
+  if (candidates.length === 0 && describePreferenceCaps(input.parsed).length > 0) {
     filterParsed = {
       ...input.parsed,
       preferredCabin: undefined,
@@ -482,13 +472,17 @@ export async function OptimizationAgent(input: {
     };
     candidates = buildFilteredCandidates({ ...input, parsed: filterParsed });
     if (candidates.length > 0) {
-      preferenceNote = `No trips matched ${describeCap(input.parsed).join(", ")}. Showing in-policy options without those caps.`;
+      preferenceNote = `No trips matched ${describePreferenceCaps(input.parsed).join(", ")}. Showing in-policy options without those caps.`;
     }
   }
 
   if (candidates.length === 0) {
     throw new Error(
-      "No trip candidates matched this route. Try a different destination or dates.",
+      explainEmptySearch({
+        parsed: input.parsed,
+        flightCount: input.flights.length,
+        hotelCount: input.hotels.length,
+      }),
     );
   }
 
@@ -631,9 +625,15 @@ export async function runTravelSearch(
     : `${flights.length} flights found`;
   steps[2]!.status = "done";
 
-  const venue = await col<Venue>(db, "venues").findOne({
-    _id: VENUE_MDB_LOCAL_VEGAS,
-  });
+  const isVegasTrip =
+    parsed.destinationAirport === "LAS" ||
+    /las\s*vegas/i.test(parsed.destinationCity) ||
+    /mongodb\.local/i.test(parsed.purpose ?? "");
+  const venue = isVegasTrip
+    ? await col<Venue>(db, "venues").findOne({
+        _id: VENUE_MDB_LOCAL_VEGAS,
+      })
+    : null;
   const hotels = await HotelSearchAgent({
     city: parsed.destinationCity,
     venue,
@@ -645,6 +645,16 @@ export async function runTravelSearch(
       ? "46 hotels found · 12 within company radius"
       : `${geo.total} hotels found · ${geo.withinRadius} within company radius`;
   steps[3]!.status = "done";
+
+  if (flights.length === 0 || hotels.length === 0) {
+    throw new Error(
+      explainEmptySearch({
+        parsed,
+        flightCount: flights.length,
+        hotelCount: hotels.length,
+      }),
+    );
+  }
 
   const profile = await PreferenceAgent(EMP_ALEX_ID);
   steps[4]!.detail = `${profile.preferredAirlines[0]} preferred · ${profile.seat[0]!.toUpperCase()}${profile.seat.slice(1)} seat preferred · ${profile.preferredHotelBrands[0]} historically rated highly`;
@@ -703,7 +713,11 @@ export async function runTravelSearch(
 
   if (all.length === 0) {
     throw new Error(
-      `No trip candidates for ${parsed.originAirport}→${parsed.destinationAirport} (${hotelsTyped.length} hotels, ${flights.length} flights).`,
+      explainEmptySearch({
+        parsed,
+        flightCount: flights.length,
+        hotelCount: hotelsTyped.length,
+      }),
     );
   }
 
