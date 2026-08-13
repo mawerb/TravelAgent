@@ -322,7 +322,10 @@ export async function OptimizationAgent(input: {
   return candidates;
 }
 
-export async function runTravelSearch(query: string): Promise<SearchResult> {
+export async function runTravelSearch(
+  query: string,
+  parsedOverride?: ParsedTripRequest,
+): Promise<SearchResult> {
   const db = await getDb();
   const steps: AgentActivityStep[] = [
     { id: "parse", title: "Understanding trip", detail: "", status: "pending" },
@@ -353,7 +356,8 @@ export async function runTravelSearch(query: string): Promise<SearchResult> {
     },
   ];
 
-  const parsed = await TripRequestParser(query);
+  const parsed =
+    parsedOverride ?? (await TripRequestParser(query));
   steps[0]!.detail = `San Francisco → ${parsed.destinationCity} · Sep 22–25`;
   if (parsed.startDate !== "2026-09-22") {
     steps[0]!.detail = `${parsed.originAirport} → ${parsed.destinationCity} · ${parsed.startDate}–${parsed.endDate}`;

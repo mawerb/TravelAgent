@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type {
   AgentActivityStep,
+  ParsedTripRequest,
   SearchResult,
   TripCandidate,
   TripConfirmation,
@@ -83,7 +84,7 @@ export function AgentExperience() {
     setRunning(false);
   }
 
-  async function runSearch(query: string) {
+  async function runSearch(query: string, parsed: ParsedTripRequest) {
     setRunning(true);
     setError(null);
     setResult(null);
@@ -137,7 +138,7 @@ export function AgentExperience() {
     };
     const animPromise = animate();
 
-    const res = await searchTravelAction(query);
+    const res = await searchTravelAction(query, parsed);
     await animPromise;
 
     if (!res.ok) {
@@ -193,12 +194,7 @@ export function AgentExperience() {
           <ActivityStream steps={steps} />
           <ConfirmationPanel
             confirmation={confirmation}
-            onConfirm={() => void runSearch(q)}
-            onRevise={() => {
-              setConfirmation(null);
-              setSteps([]);
-              lastQuery.current = "";
-            }}
+            onConfirm={(parsed) => void runSearch(q, parsed)}
           />
         </section>
       ) : null}
