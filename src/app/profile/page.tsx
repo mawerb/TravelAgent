@@ -5,14 +5,15 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
 import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
-import { EMP_ALEX_ID } from "@/lib/session";
+import { getDemoSession } from "@/lib/session";
 import type { EmployeeProfile } from "@/types";
 
 export default async function ProfilePage() {
   await ensureDemoSeeded();
+  const { employee } = await getDemoSession();
   const db = await getDb();
   const profile = await col<EmployeeProfile>(db, "employeeProfiles").findOne({
-    employeeId: EMP_ALEX_ID,
+    employeeId: employee._id,
   });
 
   if (!profile) {
@@ -54,7 +55,7 @@ export default async function ProfilePage() {
         />
       </div>
 
-      <div className="rounded-3xl border border-border bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
         <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           Typical behavior
         </p>
@@ -65,7 +66,7 @@ export default async function ProfilePage() {
         <ul className="mt-4 space-y-1.5 text-sm">
           {profile.inferredPreferences.map((p) => (
             <li key={p} className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-stone-400" />
+              <span className="size-1.5 rounded-full bg-zinc-500" />
               {p}
             </li>
           ))}
@@ -86,7 +87,7 @@ export default async function ProfilePage() {
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-border bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
       <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         {label}
       </p>

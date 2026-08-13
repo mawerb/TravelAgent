@@ -3,16 +3,17 @@ export const dynamic = "force-dynamic";
 import { ensureDemoSeeded } from "@/lib/db/ensure-seeded";
 import { getDb } from "@/lib/db/client";
 import { col } from "@/lib/db/collections";
-import { EMP_ALEX_ID } from "@/lib/session";
+import { getDemoSession } from "@/lib/session";
 import { formatUsd } from "@/lib/money";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { Expense } from "@/types";
 
 export default async function ExpensesPage() {
   await ensureDemoSeeded();
+  const { employee } = await getDemoSession();
   const db = await getDb();
   const expenses = await col<Expense>(db, "expenses")
-    .find({ employeeId: EMP_ALEX_ID })
+    .find({ employeeId: employee._id })
     .sort({ createdAt: -1 })
     .limit(40)
     .toArray();
@@ -41,7 +42,7 @@ export default async function ExpensesPage() {
           return (
             <div
               key={bookingId}
-              className="rounded-3xl border border-border bg-white p-5 shadow-sm"
+              className="rounded-3xl border border-border bg-card p-5 shadow-sm"
             >
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-2">

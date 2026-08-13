@@ -11,7 +11,7 @@ export function BudgetCard({ ledger }: { ledger: CompanyBudgetLedger }) {
   );
 
   return (
-    <div className="rounded-3xl border border-border bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
       <h3 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
         Corporate travel budget
       </h3>
@@ -23,17 +23,17 @@ export function BudgetCard({ ledger }: { ledger: CompanyBudgetLedger }) {
           <p className="text-xs text-muted-foreground">Remaining</p>
           <motion.p
             key={ledger.availableCents}
-            initial={{ scale: 1.05, color: "#047857" }}
-            animate={{ scale: 1, color: "#1c1917" }}
+            initial={{ scale: 1.05, color: "#6ee7b7" }}
+            animate={{ scale: 1, color: "#f4f4f5" }}
             className="text-2xl font-semibold"
           >
             {formatUsd(ledger.availableCents)}
           </motion.p>
         </div>
       </div>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-stone-100">
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
         <motion.div
-          className="h-full rounded-full bg-stone-900"
+          className="h-full rounded-full bg-sky-400"
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={{ duration: 0.6 }}

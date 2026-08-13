@@ -19,7 +19,7 @@ export default function SettingsPage() {
         <p className="text-muted-foreground">Demo controls and environment.</p>
       </header>
 
-      <div className="rounded-3xl border border-border bg-white p-5 shadow-sm space-y-3">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-3">
         <div className="flex items-center gap-2">
           <StatusPill tone="info">DEMO_MODE</StatusPill>
           <span className="text-sm">

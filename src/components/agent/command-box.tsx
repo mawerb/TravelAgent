@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Mic, Paperclip, Search } from "lucide-react";
+import { ArrowUpRight, Mic, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,10 +20,12 @@ export function CommandBox({
   initialQuery = "",
   autoFocus = false,
   className,
+  variant = "hero",
 }: {
   initialQuery?: string;
   autoFocus?: boolean;
   className?: string;
+  variant?: "hero" | "compact";
 }) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
@@ -38,9 +40,18 @@ export function CommandBox({
     router.push(`/agent?q=${encodeURIComponent(q)}`);
   }
 
+  const hero = variant === "hero";
+
   return (
     <div className={cn("space-y-4", className)}>
-      <div className="rounded-3xl border border-border bg-white p-4 shadow-sm ring-1 ring-black/[0.03] sm:p-5">
+      <div
+        className={cn(
+          "soar-search-focus transition",
+          hero
+            ? "rounded-[1.75rem] bg-[var(--search-surface)] p-5 text-[var(--search-foreground)] shadow-[0_30px_80px_-20px_rgb(59_130_246_/_0.45)] sm:p-6"
+            : "rounded-3xl border border-border bg-card p-4 sm:p-5",
+        )}
+      >
         <textarea
           autoFocus={autoFocus}
           value={query}
@@ -52,42 +63,58 @@ export function CommandBox({
             }
           }}
           placeholder={
-            '"I need to be in Las Vegas for MongoDB.local from Sep 22–25. Keep me close to the venue."'
+            hero
+              ? "Describe the trip — city, dates, airline prefs, budget…"
+              : '"I need to be in Las Vegas for MongoDB.local from Sep 22–25."'
           }
-          rows={3}
-          className="w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted-foreground/70"
+          rows={hero ? 2 : 3}
+          className={cn(
+            "w-full resize-none bg-transparent text-base leading-relaxed outline-none sm:text-lg",
+            hero
+              ? "placeholder:text-zinc-400"
+              : "placeholder:text-muted-foreground/70",
+          )}
         />
-        <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1">
-            <Button type="button" variant="ghost" size="icon-sm" aria-label="Voice">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Voice"
+              className={hero ? "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900" : undefined}
+            >
               <Mic className="size-4" />
             </Button>
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
-              aria-label="Attach"
-            >
-              <Paperclip className="size-4" />
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
               size="sm"
+              className={cn(
+                "gap-1.5",
+                hero ? "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900" : undefined,
+              )}
               onClick={() => {
                 setQuery(DEFAULT_QUERY);
                 submit(DEFAULT_QUERY);
               }}
             >
+              <Sparkles className="size-3.5" />
               Demo prompt
             </Button>
-            <Button type="button" size="sm" onClick={() => submit()}>
-              <Search className="size-3.5" />
-              Search trips
-            </Button>
           </div>
+          <Button
+            type="button"
+            size={hero ? "lg" : "sm"}
+            onClick={() => submit()}
+            className={cn(
+              hero &&
+                "rounded-full bg-zinc-950 px-6 text-white hover:bg-zinc-800",
+            )}
+          >
+            Search
+            <ArrowUpRight className="size-4" />
+          </Button>
         </div>
       </div>
 
@@ -106,7 +133,12 @@ export function CommandBox({
               setQuery(q);
               submit(q);
             }}
-            className="rounded-full border border-border bg-white px-3.5 py-1.5 text-sm text-muted-foreground transition hover:border-stone-300 hover:text-foreground"
+            className={cn(
+              "rounded-full px-3.5 py-1.5 text-sm transition",
+              hero
+                ? "border border-white/15 bg-white/5 text-zinc-300 hover:border-sky-300/40 hover:bg-white/10 hover:text-white"
+                : "border border-border bg-card px-3.5 py-1.5 text-muted-foreground hover:border-white/20 hover:text-foreground",
+            )}
           >
             {chip}
           </button>

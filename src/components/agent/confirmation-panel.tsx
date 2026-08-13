@@ -56,7 +56,7 @@ export function ConfirmationPanel({
   }
 
   return (
-    <section className="space-y-4 rounded-3xl border border-border bg-white p-6 shadow-sm ring-1 ring-black/[0.03]">
+    <section className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-sm ring-1 ring-white/5">
       <div>
         <p className="text-sm font-medium text-muted-foreground">
           Agent follow-up
@@ -78,9 +78,9 @@ export function ConfirmationPanel({
           {live.followUps.map((q) => (
             <li
               key={q.id}
-              className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3"
+              className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3"
             >
-              <p className="text-sm font-medium text-amber-950">{q.prompt}</p>
+              <p className="text-sm font-medium text-amber-100">{q.prompt}</p>
               <p className="mt-1 text-sm text-amber-900/80">{q.answer}</p>
             </li>
           ))}
@@ -156,7 +156,7 @@ export function ConfirmationPanel({
             />
           </Field>
           <Field label="Proximity">
-            <label className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border bg-white px-3 text-sm">
+            <label className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm">
               <input
                 type="checkbox"
                 checked={draft.proximityPreferred}
@@ -173,7 +173,7 @@ export function ConfirmationPanel({
           {live.questions.map((q) => (
             <li
               key={q.id}
-              className="rounded-2xl border border-border/80 bg-stone-50/80 px-4 py-3"
+              className="rounded-2xl border border-border/80 bg-muted px-4 py-3"
             >
               <p className="text-sm font-medium text-foreground">{q.prompt}</p>
               <p className="mt-1 text-sm text-muted-foreground">{q.answer}</p>
@@ -182,7 +182,7 @@ export function ConfirmationPanel({
         </ul>
       )}
 
-      <div className="space-y-2 rounded-2xl border border-border/80 bg-stone-50/60 p-3">
+      <div className="space-y-2 rounded-2xl border border-border/80 bg-muted p-3">
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           {live.followUps.length > 0
             ? "Reply to the agent"
@@ -203,7 +203,7 @@ export function ConfirmationPanel({
               ? live.followUps[0].answer
               : 'e.g. "flight under $300", "from SFO", "prefer Delta"'
           }
-          className="w-full resize-none rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-stone-300"
+          className="w-full resize-none rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-white/15"
         />
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -216,7 +216,7 @@ export function ConfirmationPanel({
             {revising ? "Updating…" : "Send"}
           </Button>
           {reply ? (
-            <p className="text-sm text-emerald-800">{reply}</p>
+            <p className="text-sm text-emerald-200">{reply}</p>
           ) : null}
         </div>
       </div>
@@ -254,7 +254,7 @@ export function ConfirmationPanel({
 }
 
 const fieldClass =
-  "h-10 w-full rounded-xl border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-stone-300";
+  "h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-white/15";
 
 function Field({
   label,

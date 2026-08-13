@@ -196,10 +196,10 @@ export function AgentExperience() {
         </p>
       </header>
 
-      <CommandBox initialQuery={q} autoFocus={!q} />
+      <CommandBox variant="compact" initialQuery={q} autoFocus={!q} />
 
       {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           <p>{error}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {(draftParsed || confirmation) && (
@@ -245,7 +245,7 @@ export function AgentExperience() {
         <section className="space-y-6">
           <ActivityStream steps={result.steps} />
           {result.preferenceNote ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
               {result.preferenceNote}
             </div>
           ) : null}

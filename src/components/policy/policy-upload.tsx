@@ -34,7 +34,7 @@ export function PolicyUploadButton() {
         Upload new policy
       </Button>
       {(running || done) && (
-        <ul className="space-y-2 rounded-2xl border border-border bg-white p-4">
+        <ul className="space-y-2 rounded-2xl border border-border bg-card p-4">
           {STEPS.map((step, i) => {
             const complete = i < idx || (done && i <= idx);
             const active = running && i === idx;
@@ -45,7 +45,7 @@ export function PolicyUploadButton() {
                 ) : active ? (
                   <Loader2 className="size-4 animate-spin text-sky-600" />
                 ) : (
-                  <span className="size-4 rounded-full bg-stone-100" />
+                  <span className="size-4 rounded-full bg-muted" />
                 )}
                 {step}
               </li>
@@ -54,7 +54,7 @@ export function PolicyUploadButton() {
         </ul>
       )}
       {done ? (
-        <p className="text-sm text-emerald-700">
+        <p className="text-sm text-emerald-300">
           Policy republished from uploaded PDF (demo simulation).
         </p>
       ) : null}

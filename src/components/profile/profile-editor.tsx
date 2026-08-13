@@ -23,7 +23,7 @@ export function ProfileEditor({
   const [saved, setSaved] = useState(false);
 
   return (
-    <div className="space-y-4 rounded-3xl border border-border bg-white p-5">
+    <div className="space-y-4 rounded-3xl border border-border bg-card p-5">
       <h3 className="font-semibold">Edit preferences</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -67,7 +67,7 @@ export function ProfileEditor({
         Save preferences
       </Button>
       {saved ? (
-        <p className="text-sm text-emerald-700">Preferences saved.</p>
+        <p className="text-sm text-emerald-300">Preferences saved.</p>
       ) : null}
     </div>
   );

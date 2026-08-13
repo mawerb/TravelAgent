@@ -4,7 +4,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { ExternalLink } from "@/components/ui/external-link";
 import { formatUsd } from "@/lib/money";
 import { formatMiles } from "@/lib/geo";
-import { googleFlightsUrl, hotelListingUrl, hotelIdFromName } from "@/lib/links";
+import { googleFlightsUrl, hotelRatesUrl, hotelIdFromName } from "@/lib/links";
 
 function formatRange(start: string, end: string) {
   const opts: Intl.DateTimeFormatOptions = {
@@ -17,45 +17,44 @@ function formatRange(start: string, end: string) {
 }
 
 export function UpcomingTripCard({ booking }: { booking: Booking }) {
-  const flightHref =
-    booking.flight.url ??
-    googleFlightsUrl({
-      origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
-      destination:
-        booking.flight.destination !== "YYY"
-          ? booking.flight.destination
-          : "LAS",
-      date: booking.startDate,
-      returnDate: booking.endDate,
-      airline: booking.flight.airline,
-    });
-  const listingHref =
-    booking.hotel.listingUrl ??
-    hotelListingUrl({
-      hotelId: hotelIdFromName(booking.hotel.name),
-      name: booking.hotel.name,
-      city: booking.destinationCity,
-    });
+  const flightHref = googleFlightsUrl({
+    origin: booking.flight.origin !== "XXX" ? booking.flight.origin : "SFO",
+    destination:
+      booking.flight.destination !== "YYY"
+        ? booking.flight.destination
+        : "LAS",
+    date: booking.startDate,
+    returnDate: booking.endDate,
+    airline: booking.flight.airline,
+  });
+  const hotelId = hotelIdFromName(booking.hotel.name);
+  const ratesHref = hotelRatesUrl({
+    hotelId,
+    name: booking.hotel.name,
+    city: booking.destinationCity,
+    checkIn: booking.startDate,
+    checkOut: booking.endDate,
+  });
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-border bg-white shadow-sm ring-1 ring-black/[0.03]">
-      <div className="bg-gradient-to-br from-stone-900 to-stone-700 px-6 py-5 text-white">
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-card ring-1 ring-white/5">
+      <div className="bg-gradient-to-br from-sky-950 via-zinc-950 to-zinc-900 px-6 py-5 text-white">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-sm text-white/70">Upcoming</p>
-            <h3 className="mt-1 text-2xl font-semibold tracking-tight">
+            <p className="text-sm text-sky-200/70">Upcoming</p>
+            <h3 className="font-heading mt-1 text-2xl font-semibold tracking-tight">
               {booking.originCity} → {booking.destinationCity}
             </h3>
-            <p className="mt-1 text-white/80">{booking.purpose}</p>
+            <p className="mt-1 text-zinc-300">{booking.purpose}</p>
           </div>
           <StatusPill
             tone="compliant"
-            className="bg-emerald-400/20 text-emerald-50 ring-emerald-300/30"
+            className="bg-emerald-400/15 text-emerald-100 ring-emerald-300/25"
           >
             Booked · In policy
           </StatusPill>
         </div>
-        <p className="mt-4 text-sm text-white/70">
+        <p className="mt-4 text-sm text-zinc-400">
           {formatRange(booking.startDate, booking.endDate)}
         </p>
       </div>
@@ -69,7 +68,7 @@ export function UpcomingTripCard({ booking }: { booking: Booking }) {
             {booking.flight.origin} → {booking.flight.destination}
           </p>
           <p className="mt-2">
-            <ExternalLink href={flightHref}>View flight</ExternalLink>
+            <ExternalLink href={flightHref}>View flights for these dates</ExternalLink>
           </p>
         </div>
         <div>
@@ -84,7 +83,7 @@ export function UpcomingTripCard({ booking }: { booking: Booking }) {
             {formatMiles(booking.hotel.distanceMiles)} from venue
           </p>
           <p className="mt-2">
-            <ExternalLink href={listingHref}>View property</ExternalLink>
+            <ExternalLink href={ratesHref}>Check rates for these dates</ExternalLink>
           </p>
         </div>
         <div>

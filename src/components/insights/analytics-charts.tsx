@@ -144,7 +144,7 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-border bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
       <h3 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
         {title}
       </h3>
@@ -155,7 +155,7 @@ function ChartCard({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-border bg-white p-4 shadow-sm">
+    <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>

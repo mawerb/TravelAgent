@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import type { TripCandidate } from "@/types";
+import type { BookingSiteQuote } from "@/lib/booking-sites";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "@/components/ui/external-link";
@@ -27,6 +28,39 @@ function formatRange(start: string, end: string): string {
   return `${s.toLocaleDateString("en-US", opts)}–${e.toLocaleDateString("en-US", { day: "numeric" })}`;
 }
 
+function BookingSiteList({
+  title,
+  quotes,
+}: {
+  title: string;
+  quotes: BookingSiteQuote[];
+}) {
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        {title}
+      </p>
+      <ul className="mt-1.5 divide-y divide-border/70">
+        {quotes.map((q) => (
+          <li
+            key={`${q.kind}-${q.siteId}`}
+            className="flex items-center justify-between gap-3 py-1.5 text-sm"
+          >
+            <ExternalLink href={q.url} className="min-w-0 truncate">
+              {q.siteName}
+              {q.badge === "cheapest" ? " · cheapest" : null}
+              {q.badge === "best" ? " · best" : null}
+            </ExternalLink>
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {formatUsd(q.priceCents)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function RecommendationCard({
   candidate,
   onBook,
@@ -39,12 +73,15 @@ export function RecommendationCard({
   const [openWhy, setOpenWhy] = useState(false);
   const [openDebug, setOpenDebug] = useState(false);
   const room = candidate.hotel.room;
-  const listing =
-    candidate.hotel.listingUrl ?? candidate.hotel.url;
   const rates = candidate.hotel.url;
+  const listing =
+    candidate.hotel.listingUrl &&
+    candidate.hotel.listingUrl !== rates
+      ? candidate.hotel.listingUrl
+      : undefined;
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-border bg-white shadow-sm ring-1 ring-black/[0.03]">
+    <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm ring-1 ring-white/5">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-6 py-5">
         <div>
           <p className="text-sm font-medium text-muted-foreground">
@@ -58,8 +95,22 @@ export function RecommendationCard({
             {candidate.nights} night{candidate.nights === 1 ? "" : "s"}
           </p>
         </div>
-        <StatusPill tone="compliant" className="text-sm px-3 py-1">
+        <StatusPill
+          tone={
+            candidate.policy.status === "compliant"
+              ? "compliant"
+              : candidate.policy.status === "exception"
+                ? "exception"
+                : "out_of_policy"
+          }
+          className="text-sm px-3 py-1"
+        >
           {candidate.scores.matchPercent}% match
+          {candidate.policy.status === "out_of_policy"
+            ? " · needs approval"
+            : candidate.policy.requiresManagerApproval
+              ? " · manager"
+              : ""}
         </StatusPill>
       </div>
 
@@ -88,10 +139,15 @@ export function RecommendationCard({
           <p className="mt-1 text-sm font-medium">
             {formatUsd(candidate.flightCents)}
           </p>
-          {candidate.flight.url ? (
+          {candidate.bookingCompare?.flights?.length ? (
+            <BookingSiteList
+              title="Flight prices across sites"
+              quotes={candidate.bookingCompare.flights}
+            />
+          ) : candidate.flight.url ? (
             <p className="mt-2">
               <ExternalLink href={candidate.flight.url}>
-                View on Google Flights
+                View flights for these dates
               </ExternalLink>
             </p>
           ) : null}
@@ -129,7 +185,7 @@ export function RecommendationCard({
           </p>
 
           {room ? (
-            <div className="mt-3 rounded-2xl border border-border/80 bg-stone-50/80 px-3 py-2.5">
+            <div className="mt-3 rounded-2xl border border-border/80 bg-muted px-3 py-2.5">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Room to book
               </p>
@@ -156,7 +212,7 @@ export function RecommendationCard({
                 {candidate.hotel.amenities.map((a) => (
                   <li
                     key={a}
-                    className="rounded-full bg-white px-2.5 py-0.5 text-xs text-stone-700 ring-1 ring-stone-200"
+                    className="rounded-full bg-card px-2.5 py-0.5 text-xs text-zinc-300 ring-1 ring-white/10"
                   >
                     {a}
                   </li>
@@ -165,29 +221,42 @@ export function RecommendationCard({
             </div>
           ) : null}
 
-          <div className="mt-3 space-y-1">
-            {listing ? (
-              <p>
-                <ExternalLink href={listing}>
-                  View property page
-                </ExternalLink>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  shareable · doesn’t expire
-                </span>
-              </p>
-            ) : null}
-            {rates && rates !== listing ? (
-              <p>
-                <ExternalLink href={rates}>
-                  Check rates for these dates
-                </ExternalLink>
-              </p>
-            ) : null}
-          </div>
+          {candidate.bookingCompare?.hotels?.length ? (
+            <BookingSiteList
+              title="Hotel rates across sites"
+              quotes={candidate.bookingCompare.hotels}
+            />
+          ) : (
+            <div className="mt-3 space-y-1">
+              {rates ? (
+                <p>
+                  <ExternalLink href={rates}>
+                    Check rates for these dates
+                  </ExternalLink>
+                </p>
+              ) : null}
+              {listing ? (
+                <p>
+                  <ExternalLink href={listing}>View property page</ExternalLink>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    shareable · doesn’t expire
+                  </span>
+                </p>
+              ) : null}
+            </div>
+          )}
+          {listing && candidate.bookingCompare?.hotels?.length ? (
+            <p className="mt-2">
+              <ExternalLink href={listing}>View property page</ExternalLink>
+              <span className="ml-2 text-xs text-muted-foreground">
+                shareable · doesn’t expire
+              </span>
+            </p>
+          ) : null}
         </div>
       </div>
 
-      <div className="grid gap-4 border-t border-border bg-stone-50/80 px-6 py-5 sm:grid-cols-3">
+      <div className="grid gap-4 border-t border-border bg-muted px-6 py-5 sm:grid-cols-3">
         <div>
           <p className="text-xs text-muted-foreground">Total</p>
           <p className="text-2xl font-semibold">
@@ -202,7 +271,7 @@ export function RecommendationCard({
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Savings</p>
-          <p className="text-xl font-semibold text-emerald-700">
+          <p className="text-xl font-semibold text-emerald-300">
             {formatUsd(candidate.savingsCents)} below policy allowance
           </p>
         </div>
@@ -212,7 +281,7 @@ export function RecommendationCard({
         {candidate.explanationChips.map((chip) => (
           <span
             key={chip}
-            className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200"
+            className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-200 ring-1 ring-emerald-400/25"
           >
             <Check className="size-3" />
             {chip}
@@ -232,7 +301,7 @@ export function RecommendationCard({
           />
         </button>
         {openWhy ? (
-          <p className="rounded-2xl bg-stone-50 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+          <p className="rounded-2xl bg-muted px-4 py-3 text-sm leading-relaxed text-muted-foreground">
             {candidate.whyThisTrip}
           </p>
         ) : null}
@@ -245,7 +314,7 @@ export function RecommendationCard({
           Developer · score breakdown
         </button>
         {openDebug ? (
-          <pre className="overflow-auto rounded-xl bg-stone-900 p-3 text-xs text-stone-100">
+          <pre className="overflow-auto rounded-xl bg-zinc-950 p-3 text-xs text-zinc-100">
             {JSON.stringify(
               {
                 weights: {
@@ -296,13 +365,18 @@ export function AlternativeCard({
       : candidate.label === "best_location"
         ? "Best location"
         : "Alternative";
-  const listing = candidate.hotel.listingUrl ?? candidate.hotel.url;
+  const rates = candidate.hotel.url;
+  const listing =
+    candidate.hotel.listingUrl &&
+    candidate.hotel.listingUrl !== rates
+      ? candidate.hotel.listingUrl
+      : undefined;
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      className="w-full rounded-3xl border border-border bg-white p-5 text-left shadow-sm transition hover:ring-1 hover:ring-stone-300"
+      className="w-full rounded-3xl border border-border bg-card p-5 text-left shadow-sm transition hover:ring-1 hover:ring-white/15"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -322,7 +396,7 @@ export function AlternativeCard({
         {formatUsd(candidate.totalCents)}
       </p>
       {candidate.label === "lowest_cost" ? (
-        <p className="mt-1 text-sm text-emerald-700">
+        <p className="mt-1 text-sm text-emerald-300">
           $172 cheaper · Hotel is{" "}
           {formatMiles(candidate.hotel.distanceMiles)} from venue.
         </p>
@@ -335,10 +409,30 @@ export function AlternativeCard({
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-3">
-        {candidate.flight.url ? (
-          <ExternalLink href={candidate.flight.url}>Flight</ExternalLink>
+        {(candidate.bookingCompare?.cheapestFlight?.url ??
+          candidate.flight.url) ? (
+          <ExternalLink
+            href={
+              candidate.bookingCompare?.cheapestFlight?.url ??
+              candidate.flight.url!
+            }
+          >
+            {candidate.bookingCompare?.cheapestFlight
+              ? `${candidate.bookingCompare.cheapestFlight.siteName} flights`
+              : "Flights"}
+          </ExternalLink>
         ) : null}
-        {listing ? (
+        {(candidate.bookingCompare?.cheapestHotel?.url ?? rates) ? (
+          <ExternalLink
+            href={
+              candidate.bookingCompare?.cheapestHotel?.url ?? rates!
+            }
+          >
+            {candidate.bookingCompare?.cheapestHotel
+              ? `${candidate.bookingCompare.cheapestHotel.siteName} rates`
+              : "Rates"}
+          </ExternalLink>
+        ) : listing ? (
           <ExternalLink href={listing}>Property</ExternalLink>
         ) : null}
       </div>

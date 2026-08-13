@@ -15,13 +15,13 @@ export function ActivityStream({ steps }: { steps: AgentActivityStep[] }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.05, duration: 0.25 }}
           className={cn(
-            "flex gap-3 rounded-2xl border border-border bg-white px-4 py-3 shadow-sm",
+            "flex gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm",
             step.status === "pending" && "opacity-50",
           )}
         >
           <div className="mt-0.5">
             {step.status === "done" ? (
-              <span className="flex size-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+              <span className="flex size-6 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/25">
                 <Check className="size-3.5" />
               </span>
             ) : step.status === "active" ? (
@@ -29,8 +29,8 @@ export function ActivityStream({ steps }: { steps: AgentActivityStep[] }) {
                 <Loader2 className="size-3.5 animate-spin" />
               </span>
             ) : (
-              <span className="flex size-6 items-center justify-center rounded-full bg-stone-100 text-stone-400 ring-1 ring-stone-200">
-                <span className="size-1.5 rounded-full bg-stone-400" />
+              <span className="flex size-6 items-center justify-center rounded-full bg-muted text-zinc-500 ring-1 ring-white/10">
+                <span className="size-1.5 rounded-full bg-zinc-500" />
               </span>
             )}
           </div>

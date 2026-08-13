@@ -31,7 +31,7 @@ export function PolicySurvey() {
 
   if (done) {
     return (
-      <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6">
+      <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/15 p-6">
         <h2 className="text-xl font-semibold">Policy generated</h2>
         <p className="mt-2 text-sm text-emerald-900">
           Your company travel policy is now active and ready for agent matching.
@@ -43,7 +43,7 @@ export function PolicySurvey() {
   const totalSteps = QUESTIONS.length + 2;
 
   return (
-    <div className="space-y-6 rounded-3xl border border-border bg-white p-6">
+    <div className="space-y-6 rounded-3xl border border-border bg-card p-6">
       <div>
         <h2 className="text-xl font-semibold">
           Let&apos;s build your company&apos;s travel policy
